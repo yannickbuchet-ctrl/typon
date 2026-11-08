@@ -2,7 +2,7 @@
  * Comparaison de deux jeux (A : version de référence, B : nouvelle version) : appariement des couches (même rôle,
  * même côté, même numéro, quel que soit le format), alignement des origines, recherche des zones de différence.
  */
-import { moteur } from "../moteur/client";
+import { moteur, type Composant } from "../moteur/client";
 import type { CoucheAffichee, Rendu, Vue } from "../rendu/rendu";
 import type { DocumentTypon, EtatCouche } from "./document";
 
@@ -16,7 +16,7 @@ export interface ZoneMm {
   apparu: number;
 }
 
-export type EtatPaire = "a-analyser" | "analyse" | "identique" | "differences" | "seulement-a" | "seulement-b";
+export type EtatPaire = "a-analyser" | "analyse" | "identique" | "differences" | "seulement-a" | "seulement-b" | "representation";
 
 export interface Paire {
   cle: string;
@@ -51,7 +51,10 @@ export function apparier(a: DocumentTypon, b: DocumentTypon): Paire[] {
     if (i < 0) i = restantsB.findIndex((cb) => cb.desc.fichier.toLowerCase() === ca.desc.fichier.toLowerCase());
     if (i < 0 && k.startsWith("percage")) i = restantsB.findIndex((cb) => cle(cb).startsWith("percage"));
     const cb = i >= 0 ? restantsB.splice(i, 1)[0] : undefined;
-    paires.push({ cle: k, libelle: ca.desc.nom, a: ca, b: cb, etat: cb ? "a-analyser" : "seulement-a", zones: [] });
+    // Couches de composants de formats différents (points du Gerber X3, contours des boîtiers en ODB++) : leur dessin
+    // n'est pas comparable ; la liste des composants l'est.
+    const representation = cb && ca.desc.role.genre === "composants" && ca.desc.format !== cb.desc.format;
+    paires.push({ cle: k, libelle: ca.desc.nom, a: ca, b: cb, etat: !cb ? "seulement-a" : representation ? "representation" : "a-analyser", zones: [] });
   }
   for (const cb of restantsB) paires.push({ cle: cle(cb), libelle: cb.desc.nom, b: cb, etat: "seulement-b", zones: [] });
   paires.sort((p, q) => ((q.a ?? q.b)!.desc.role.rang - (p.a ?? p.b)!.desc.role.rang));
@@ -147,4 +150,55 @@ function eroder(m: Uint8Array, l: number, h: number, passes: number) {
     [src, dst] = [dst, src];
   }
   if (src !== m) m.set(src);
+}
+
+export interface DifferencesComposants {
+  ajoutes: Composant[];
+  retires: Composant[];
+  modifies: { reference: string; changements: string[] }[];
+  communs: number;
+}
+
+/** Compare les listes de composants (repère, valeur, boîtier, pièce, position, rotation, côté). */
+export function comparerComposants(a: Composant[], b: Composant[], decalage: { dx: number; dy: number }): DifferencesComposants {
+  const parRef = (l: Composant[]) => new Map(l.map((c) => [c.reference, c]));
+  const ma = parRef(a);
+  const mb = parRef(b);
+  const r: DifferencesComposants = { ajoutes: [], retires: [], modifies: [], communs: 0 };
+  for (const [ref, ca] of ma) {
+    const cb = mb.get(ref);
+    if (!cb) {
+      r.retires.push(ca);
+      continue;
+    }
+    r.communs++;
+    const changements: string[] = [];
+    const comparer = (nom: string, va: unknown, vb: unknown) => {
+      const sa = String(va ?? "").trim();
+      const sb = String(vb ?? "").trim();
+      if (sa && sb && sa !== sb) changements.push(`${nom} : ${sa} → ${sb}`);
+    };
+    comparer("valeur", ca.valeur, cb.valeur);
+    comparer("boîtier", ca.boitier, cb.boitier);
+    comparer("pièce", ca.piece, cb.piece);
+    const rot = (v: number | string) => {
+      const n = Number(String(v).replace(",", "."));
+      return Number.isFinite(n) ? ((n % 360) + 360) % 360 : NaN;
+    };
+    const ra = rot(ca.rotation);
+    const rb = rot(cb.rotation);
+    if (Number.isFinite(ra) && Number.isFinite(rb) && Math.abs(ra - rb) > 0.05) changements.push(`rotation : ${ra}° → ${rb}°`);
+    if (ca.x !== undefined && cb.x !== undefined && ca.y !== undefined && cb.y !== undefined) {
+      const d = Math.hypot(cb.x + decalage.dx - ca.x, cb.y + decalage.dy - ca.y);
+      if (d > 0.01) changements.push(`déplacé de ${d.toFixed(3).replace(".", ",")} mm`);
+    }
+    if (ca.cote && cb.cote && ca.cote !== cb.cote) changements.push(`côté : ${ca.cote} → ${cb.cote}`);
+    if (changements.length) r.modifies.push({ reference: ref, changements });
+  }
+  for (const [ref, cb] of mb) if (!ma.has(ref)) r.ajoutes.push(cb);
+  const tri = (x: { reference: string }, y: { reference: string }) => x.reference.localeCompare(y.reference, "fr", { numeric: true });
+  r.ajoutes.sort(tri);
+  r.retires.sort(tri);
+  r.modifies.sort(tri);
+  return r;
 }

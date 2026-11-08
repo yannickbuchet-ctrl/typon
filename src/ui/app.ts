@@ -4,7 +4,7 @@
 import type { ObjetTrouve } from "../moteur/client";
 import { moteur } from "../moteur/client";
 import { couleurRgb, type CoucheAffichee } from "../rendu/rendu";
-import { alignementAuto, analyser, apparier, type Paire, type ZoneMm } from "./comparaison";
+import { alignementAuto, analyser, apparier, comparerComposants, type Paire, type ZoneMm } from "./comparaison";
 import { DocumentTypon, ouvrir, type Cote, type EtatCouche } from "./document";
 import { el, longueur, nombre, pluriel, type Unite } from "./dom";
 import { icone, LOGO } from "./icones";
@@ -208,6 +208,7 @@ export class App {
   private afficher() {
     this.afficherBarre();
     this.racine.classList.toggle("avec-document", !!this.docA);
+    this.racine.classList.toggle("en-comparaison", !!this.comparaison);
     if (!this.docA) {
       this.panneauGauche.replaceChildren();
       this.panneauDroit.replaceChildren();
@@ -636,7 +637,10 @@ export class App {
       }
     }
     const tol = 3 / this.vue().vue.echelle * (window.devicePixelRatio || 1);
-    for (const c of this.ordre(couches)) {
+    // Priorité : le cuivre (du côté regardé d'abord), puis composants, perçages, sérigraphie, contour, masque, pâte.
+    const priorite: Record<string, number> = { cuivre: 0, composants: 1, percage: 2, fraisage: 2, serigraphie: 3, contour: 4, masque: 5, pate: 6 };
+    const ordonnees = this.ordre(couches).map((c, i) => ({ c, i })).sort((x, y) => (priorite[x.c.desc.role.genre] ?? 7) - (priorite[y.c.desc.role.genre] ?? 7) || x.i - y.i).map((x) => x.c);
+    for (const c of ordonnees) {
       if (!c.visible && !cmp) continue;
       const proprio = this.docB?.couches.includes(c) ? this.docB : doc;
       const d = proprio === this.docB ? (cmp?.decalage ?? decalage) : { dx: 0, dy: 0 };
@@ -725,6 +729,8 @@ export class App {
     const decalage = alignementAuto(this.docA, this.docB);
     this.comparaison = { paires, choisie: Math.max(0, paires.findIndex((p) => p.a && p.b && p.a.desc.role.genre === "cuivre")), affichage: ancien?.affichage ?? "superposition", montrerB: false, zone: -1, decalage, aligner: true, tolerance: ancien?.tolerance ?? 0.05, analyse: false };
     for (const d of [this.docA, this.docB]) d.preregler(this.cote);
+    this.ongletActif = "differences";
+    this.selection = null;
     for (const p of paires) {
       const v = (p.a ?? p.b)!.visible;
       if (p.a) p.a.visible = v;
@@ -740,7 +746,7 @@ export class App {
     const a = this.docA;
     const b = this.docB;
     // Couches de la paire choisie d'abord, pour un premier résultat rapide.
-    const ordre = [cmp.paires[cmp.choisie], ...cmp.paires.filter((_, i) => i !== cmp.choisie)].filter((p) => p && p.a && p.b);
+    const ordre = [cmp.paires[cmp.choisie], ...cmp.paires.filter((_, i) => i !== cmp.choisie)].filter((p) => p && p.a && p.b && p.etat === "a-analyser");
     let n = 0;
     for (const p of ordre) {
       if (this.comparaison !== cmp) return;
@@ -780,6 +786,7 @@ export class App {
         differences: ["diff", pluriel(p.zones.length, "zone")],
         "seulement-a": ["seul", "seulement A"],
         "seulement-b": ["seul", "seulement B"],
+        representation: ["seul", "voir la liste"],
       }[p.etat];
       const oeil = el("button", { type: "button", class: `oeil ${ref.visible ? "visible" : ""}`, "aria-pressed": String(ref.visible), title: "Afficher en côte à côte et en alternance", html: icone(ref.visible ? "oeil" : "oeilFerme", 16), onclick: (e: Event) => {
         e.stopPropagation();
@@ -814,7 +821,7 @@ export class App {
   private relancerAnalyse() {
     const cmp = this.comparaison;
     if (!cmp) return;
-    for (const p of cmp.paires) if (p.a && p.b) {
+    for (const p of cmp.paires) if (p.a && p.b && p.etat !== "representation") {
       p.etat = "a-analyser";
       p.zones = [];
     }
@@ -879,6 +886,11 @@ export class App {
     racine.append(actions);
     if (!p) return racine;
     racine.append(el("h3", { class: "titre-paire", text: p.libelle }));
+    if (p.etat === "representation") {
+      racine.append(el("p", { class: "vide", text: "Les deux versions représentent les composants différemment (points du Gerber X3, contours des boîtiers en ODB++) : leur dessin n'est pas comparable. La comparaison de la liste des composants est ci-dessous." }));
+      racine.append(this.differencesComposants());
+      return racine;
+    }
     if (p.etat === "seulement-a" || p.etat === "seulement-b") {
       racine.append(el("p", { class: "vide", text: p.etat === "seulement-a" ? "Cette couche n'existe que dans la version A." : "Cette couche n'existe que dans la version B." }));
       return racine;
@@ -907,7 +919,39 @@ export class App {
     });
     racine.append(ul);
     if (p.resolution) racine.append(el("p", { class: "discret", text: `Comparaison au pas de ${longueur(p.resolution, this.unite, 3)}.` }));
+    racine.append(this.differencesComposants());
     return racine;
+  }
+
+  /** Composants ajoutés, retirés ou modifiés entre A et B. */
+  private differencesComposants(): HTMLElement {
+    const ca = this.docA?.description.meta.composants ?? [];
+    const cb = this.docB?.description.meta.composants ?? [];
+    const bloc = el("section", { class: "bloc composants-differences" }, el("h3", { text: "Composants" }));
+    if (!ca.length && !cb.length) {
+      bloc.append(el("p", { class: "discret", text: "Aucune liste de composants (ni Gerber X3, ni ODB++)." }));
+      return bloc;
+    }
+    if (!ca.length || !cb.length) {
+      bloc.append(el("p", { class: "discret", text: `Seule la version ${ca.length ? "A" : "B"} contient la liste des composants.` }));
+      return bloc;
+    }
+    const d = comparerComposants(ca, cb, this.comparaison?.aligner ? this.comparaison.decalage : { dx: 0, dy: 0 });
+    if (!d.ajoutes.length && !d.retires.length && !d.modifies.length) {
+      bloc.append(el("div", { class: "identique" }, el("span", { html: icone("info", 18) }), el("span", { text: `Les ${nombre(d.communs, 0)} composants sont identiques.` })));
+      return bloc;
+    }
+    const ligne = (genre: string, ref: string, texte: string, x?: number, y?: number) => el("li", {}, el("button", { type: "button", disabled: x === undefined, onclick: () => x !== undefined && this.allerA(x, y!, 4) },
+      el("span", { class: `genre ${genre}`, text: genre }), el("strong", { text: ref }), el("span", { text: texte })));
+    const ul = el("ul", { class: "liste-composants" });
+    for (const c of d.retires) ul.append(ligne("disparu", c.reference, [c.valeur, c.boitier].filter(Boolean).join(" · "), c.x, c.y));
+    for (const c of d.ajoutes) ul.append(ligne("apparu", c.reference, [c.valeur, c.boitier].filter(Boolean).join(" · "), c.x, c.y));
+    for (const m of d.modifies) {
+      const c = cb.find((x) => x.reference === m.reference);
+      ul.append(ligne("modifié", m.reference, m.changements.join(" ; "), c?.x, c?.y));
+    }
+    bloc.append(el("p", { class: "discret", text: `${pluriel(d.ajoutes.length, "ajouté")}, ${pluriel(d.retires.length, "retiré")}, ${pluriel(d.modifies.length, "modifié")}, ${pluriel(d.communs - d.modifies.length, "inchangé")}.` }), ul);
+    return bloc;
   }
 
   private async rapport() {

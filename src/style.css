@@ -248,3 +248,9 @@ body.depot-actif::after { content: "Déposez pour ouvrir"; position: fixed; inse
   .pastille-doc { max-width: 150px; }
   .confidentialite { display: none; }
 }
+.liste-composants { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 0.8rem; }
+.liste-composants button { width: 100%; display: grid; grid-template-columns: 74px 54px 1fr; gap: 8px; text-align: left; padding: 6px 8px; border-radius: 8px; border: 1px solid transparent; background: none; cursor: pointer; }
+.liste-composants button:hover:not(:disabled) { background: var(--panneau-2); border-color: var(--bord-doux); }
+.liste-composants button:disabled { cursor: default; }
+.composants-differences { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--bord-doux); }
+.app.en-comparaison .barre .segment[aria-label="Côté vu"] .bouton span { display: none; }

@@ -204,8 +204,11 @@ struct Lecteur {
     formes: HashMap<i32, Vec<Prim>>,
     // Sortie
     cadres: Vec<Cadre>,
+    /// Informations distinctes (partagées par les objets qui ont les mêmes attributs).
     objets_info: Vec<Info>,
     infos_index: HashMap<Info, u32>,
+    /// Objet graphique -> son information (index dans objets_info).
+    objets: Vec<u32>,
     res: Gerber,
     dessin_commence: bool,
     alerte_d: bool,
@@ -242,6 +245,7 @@ pub fn lire(texte: &str) -> Gerber {
         cadres: vec![Cadre { elements: Vec::new(), infos: Vec::new(), genre: Genre::Racine }],
         objets_info: Vec::new(),
         infos_index: HashMap::new(),
+        objets: Vec::new(),
         res: Gerber {
             dessin: Dessin::default(),
             attributs: Vec::new(),
@@ -672,6 +676,11 @@ impl Lecteur {
                 self.res.nets.push(net.clone());
             }
         }
+        self.objet_avec(info)
+    }
+
+    /// Nouvel objet graphique (un flash, un trait, une région…) portant ces informations.
+    fn objet_avec(&mut self, info: Info) -> u32 {
         let id = match self.infos_index.get(&info) {
             Some(&i) => i,
             None => {
@@ -681,7 +690,8 @@ impl Lecteur {
                 i
             }
         };
-        id
+        self.objets.push(id);
+        (self.objets.len() - 1) as u32
     }
 
     fn emettre(&mut self, prim: Prim, sombre: bool, info: u32) {
@@ -806,9 +816,9 @@ impl Lecteur {
         let sombre = self.sombre;
         if let Ouverture::Bloc { dessin, infos } = &ouv {
             // Les objets du bloc gardent leurs propres attributs ; polarités inversées si le flash est clair.
-            let base = self.objets_info.len() as u32;
+            let base = self.objets.len() as u32;
             for info in infos {
-                self.objets_info.push(info.clone());
+                self.objet_avec(info.clone());
             }
             for e in dessin.clone() {
                 let s = if sombre { e.sombre } else { !e.sombre };
@@ -847,7 +857,7 @@ impl Lecteur {
                 let mut elements = Vec::new();
                 for e in cadre.elements {
                     let id = *locaux.entry(e.objet).or_insert_with(|| {
-                        infos.push(self.objets_info[e.objet as usize].clone());
+                        infos.push(self.objets_info[self.objets[e.objet as usize] as usize].clone());
                         (infos.len() - 1) as u32
                     });
                     elements.push(Element { objet: id, ..e });
@@ -889,7 +899,7 @@ impl Lecteur {
             let id = match correspondance.get(&e.objet) {
                 Some(&i) => i,
                 None => {
-                    let i = dessin.nouvel_objet(self.objets_info[e.objet as usize].clone());
+                    let i = dessin.nouvel_objet(self.objets_info[self.objets[e.objet as usize] as usize].clone());
                     correspondance.insert(e.objet, i);
                     i
                 }

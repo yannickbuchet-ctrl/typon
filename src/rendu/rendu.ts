@@ -170,11 +170,13 @@ function compiler(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLProg
   return p;
 }
 
+/** Cibles de peinture : deux tampons multi-échantillonnés, chacun résolu dans sa texture (un seul tampon partagé ne
+ * suffit pas : certains pilotes diffèrent la résolution, et la peinture suivante effaçait la texture précédente). */
 interface Cible {
   largeur: number;
   hauteur: number;
-  msaa: WebGLFramebuffer;
-  tampon: WebGLRenderbuffer;
+  msaa: WebGLFramebuffer[];
+  tampons: WebGLRenderbuffer[];
   resolu: WebGLFramebuffer[];
   textures: WebGLTexture[];
 }
@@ -281,21 +283,20 @@ export class Rendu {
   private preparerCible(largeur: number, hauteur: number): Cible {
     const gl = this.gl;
     if (this.cible && this.cible.largeur === largeur && this.cible.hauteur === hauteur) return this.cible;
-    if (this.cible) {
-      gl.deleteFramebuffer(this.cible.msaa);
-      gl.deleteRenderbuffer(this.cible.tampon);
-      for (const f of this.cible.resolu) gl.deleteFramebuffer(f);
-      for (const t of this.cible.textures) gl.deleteTexture(t);
-    }
-    const msaa = gl.createFramebuffer()!;
-    const tampon = gl.createRenderbuffer()!;
-    gl.bindRenderbuffer(gl.RENDERBUFFER, tampon);
-    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, this.echantillons, gl.RGBA8, largeur, hauteur);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, msaa);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, tampon);
+    if (this.cible) this.detruire(this.cible);
+    const msaa: WebGLFramebuffer[] = [];
+    const tampons: WebGLRenderbuffer[] = [];
     const resolu: WebGLFramebuffer[] = [];
     const textures: WebGLTexture[] = [];
     for (let i = 0; i < 2; i++) {
+      const tampon = gl.createRenderbuffer()!;
+      gl.bindRenderbuffer(gl.RENDERBUFFER, tampon);
+      gl.renderbufferStorageMultisample(gl.RENDERBUFFER, this.echantillons, gl.RGBA8, largeur, hauteur);
+      const m = gl.createFramebuffer()!;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, m);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, tampon);
+      msaa.push(m);
+      tampons.push(tampon);
       const t = gl.createTexture()!;
       gl.bindTexture(gl.TEXTURE_2D, t);
       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, largeur, hauteur);
@@ -308,8 +309,15 @@ export class Rendu {
       textures.push(t);
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    this.cible = { largeur, hauteur, msaa, tampon, resolu, textures };
+    this.cible = { largeur, hauteur, msaa, tampons, resolu, textures };
     return this.cible;
+  }
+
+  private detruire(c: Cible) {
+    const gl = this.gl;
+    for (const f of [...c.msaa, ...c.resolu]) gl.deleteFramebuffer(f);
+    for (const t of c.tampons) gl.deleteRenderbuffer(t);
+    for (const t of c.textures) gl.deleteTexture(t);
   }
 
   /** Uniformes de vue pour un rectangle d'écran (clip = p·s + o). */
@@ -323,7 +331,7 @@ export class Rendu {
   /** Peint le masque d'une ou plusieurs couches (unies) dans la texture `index` de la cible. */
   private peindre(cible: Cible, scene: Scene, couches: CoucheAffichee[], index: number) {
     const gl = this.gl;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, cible.msaa);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, cible.msaa[index]);
     gl.viewport(scene.x, scene.y, scene.w, scene.h);
     gl.enable(gl.SCISSOR_TEST);
     gl.scissor(scene.x, scene.y, scene.w, scene.h);
@@ -357,7 +365,7 @@ export class Rendu {
       }
     }
     gl.bindVertexArray(null);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, cible.msaa);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, cible.msaa[index]);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, cible.resolu[index]);
     gl.blitFramebuffer(scene.x, scene.y, scene.x + scene.w, scene.y + scene.h, scene.x, scene.y, scene.x + scene.w, scene.y + scene.h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -468,10 +476,7 @@ export class Rendu {
       }
     }
     // Libère la cible d'analyse et retrouve celle de l'écran.
-    gl.deleteFramebuffer(cible.msaa);
-    gl.deleteRenderbuffer(cible.tampon);
-    for (const f of cible.resolu) gl.deleteFramebuffer(f);
-    for (const t of cible.textures) gl.deleteTexture(t);
+    this.detruire(cible);
     this.cible = sauvegarde;
     return m;
   }

@@ -418,6 +418,20 @@ impl Dessin {
     pub fn info_objet(&self, objet: u32) -> Option<&Info> {
         self.objets.get(objet as usize).and_then(|&i| self.infos.get(i as usize))
     }
+    /// Boîte des axes des tracés (sans leur épaisseur) : les dimensions d'une carte se mesurent sur l'axe du contour.
+    pub fn boite_axes(&self) -> BBox {
+        let mut b = BBox::vide();
+        for e in &self.elements {
+            match &e.prim {
+                Prim::Cap { a, b: q, .. } => {
+                    b.ajoute(*a);
+                    b.ajoute(*q);
+                }
+                autre => b.union(&autre.boite_englobante()),
+            }
+        }
+        b
+    }
     pub fn boite(&self) -> BBox {
         let mut b = BBox::vide();
         for e in &self.elements {

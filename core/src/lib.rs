@@ -376,7 +376,7 @@ pub fn analyser(lot: &mut Lot) -> Value {
     // Dimensions : contour s'il existe, sinon toutes les couches.
     let mut boite = BBox::vide();
     for c in couches.iter().filter(|c| c.role.genre == Genre::Contour) {
-        boite.union(&c.dessin.boite());
+        boite.union(&c.dessin.boite_axes());
     }
     if boite.est_vide() {
         for c in &couches {
@@ -423,14 +423,22 @@ fn ajouter_odb(o: odb::Odb, couches: &mut Vec<Couche>, meta: &mut serde_json::Ma
         "piece": c.piece,
         "x": c.x,
         "y": c.y,
-        "rotation": c.rotation,
+        // ODB++ compte les rotations dans le sens horaire ; Typon les donne dans le sens trigonométrique, comme X3.
+        "rotation": (360.0 - c.rotation).rem_euclid(360.0),
         "cote": if c.dessous { "dessous" } else { "dessus" },
         "broches": c.broches,
         "proprietes": c.proprietes,
     })).collect::<Vec<_>>()));
     meta.insert("nomenclature".into(), json!(bom.iter().map(|((p, v), refs)| json!({"piece": p, "valeur": v, "quantite": refs.len(), "references": refs})).collect::<Vec<_>>()));
     meta.insert("nets".into(), json!(o.nets.iter().map(|(n, k)| json!({"nom": n, "elements": k})).collect::<Vec<_>>()));
-    for c in o.couches {
+    for mut c in o.couches {
+        // Perçage : métallisé ou non d'après les outils (PLATED, VIA ou NON_PLATED), et couches reliées.
+        if (c.role.genre == Genre::Percage || c.role.genre == Genre::Fraisage) && !c.outils.is_empty() {
+            let non = c.outils.iter().all(|t| t.genre == "non métallisé");
+            let base = if c.role.genre == Genre::Fraisage { "Fraisage" } else { "Perçage" };
+            let etendue = if !c.debut.is_empty() { format!(" {}–{}", c.debut, c.fin) } else { String::new() };
+            c.role.libelle = format!("{base} {}{etendue}", if non { "non métallisé" } else { "métallisé" });
+        }
         let meta_c = json!({
             "format": "ODB++",
             "typeOdb": c.type_odb,

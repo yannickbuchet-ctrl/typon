@@ -213,13 +213,13 @@ pub fn lire(texte: &str) -> Excellon {
             corps = &corps[f..];
         }
         let diametre = *diametres.get(&outil).unwrap_or(&0.0);
-        let objet = *objets_outil.entry(outil).or_insert_with(|| {
-            dessin.nouvel_objet(vec![
-                ("Objet".into(), "Perçage".into()),
-                ("Outil".into(), format!("T{outil:02}")),
-                ("Diamètre".into(), format!("{} mm", crate::gerber::nombre(diametre))),
-            ])
-        });
+        let info_trou: crate::geom::Info = vec![
+            ("Objet".into(), if fraisage && mode_g != 5 { "Fraisage".into() } else { "Perçage".into() }),
+            ("Outil".into(), format!("T{outil:02}")),
+            ("Diamètre".into(), format!("{} mm", crate::gerber::nombre(diametre))),
+        ];
+        let objet = dessin.nouvel_objet(info_trou);
+        let _ = &mut objets_outil;
         if let Some(gc) = g {
             if gc <= 3 {
                 mode_g = gc;

@@ -4,7 +4,7 @@
  */
 import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from "pdf-lib";
 import type { Rendu, Vue } from "../rendu/rendu";
-import type { Paire } from "./comparaison";
+import { comparerComposants, type Paire } from "./comparaison";
 import type { DocumentTypon } from "./document";
 import { longueur, nombre, telecharger, type Unite } from "./dom";
 
@@ -87,7 +87,7 @@ export async function rapportPdf(o: Options) {
   y -= 14;
   for (const p of o.paires) {
     if (y < MARGE + 20) break;
-    const resultat = { "a-analyser": "non analysée", analyse: "non analysée", identique: "identique", differences: "différences", "seulement-a": "seulement dans A", "seulement-b": "seulement dans B" }[p.etat];
+    const resultat = { "a-analyser": "non analysée", analyse: "non analysée", identique: "identique", differences: "différences", "seulement-a": "seulement dans A", "seulement-b": "seulement dans B", representation: "voir les composants" }[p.etat];
     const disparu = p.zones.reduce((s, z) => s + z.disparu, 0);
     const apparu = p.zones.reduce((s, z) => s + z.apparu, 0);
     const couleur = p.etat === "differences" ? ORANGE : p.etat === "identique" ? rgb(0.13, 0.55, 0.3) : GRIS;
@@ -100,6 +100,31 @@ export async function rapportPdf(o: Options) {
     y -= 15;
   }
   ecrire(synthese, "Rouge : présent seulement dans A (disparu). Vert : présent seulement dans B (apparu). Gris : commun aux deux versions.", MARGE, MARGE, 8, police, GRIS);
+
+  // Composants : ajoutés, retirés, modifiés
+  const ca = o.a.description.meta.composants ?? [];
+  const cb = o.b.description.meta.composants ?? [];
+  if (ca.length && cb.length) {
+    const d = comparerComposants(ca, cb, o.decalage);
+    const page = pdf.addPage([A4.l, A4.h]);
+    entete(page, "Composants");
+    let yc = A4.h - MARGE - 40;
+    ecrire(page, `${d.ajoutes.length} ajouté(s), ${d.retires.length} retiré(s), ${d.modifies.length} modifié(s), ${d.communs - d.modifies.length} inchangé(s).`, MARGE, yc, 10, gras);
+    yc -= 22;
+    const lignes: [string, string, string][] = [
+      ...d.retires.map((c) => ["retiré", c.reference, [c.valeur, c.boitier, c.piece].filter(Boolean).join(" · ")] as [string, string, string]),
+      ...d.ajoutes.map((c) => ["ajouté", c.reference, [c.valeur, c.boitier, c.piece].filter(Boolean).join(" · ")] as [string, string, string]),
+      ...d.modifies.map((m) => ["modifié", m.reference, m.changements.join(" ; ")] as [string, string, string]),
+    ];
+    for (const [genre, ref, texte] of lignes) {
+      if (yc < MARGE + 10) break;
+      ecrire(page, genre, MARGE, yc, 9, gras, genre === "ajouté" ? rgb(0.1, 0.55, 0.25) : genre === "retiré" ? rgb(0.8, 0.15, 0.15) : ORANGE);
+      ecrire(page, ref, MARGE + 70, yc, 9, gras);
+      ecrire(page, texte.slice(0, 120), MARGE + 140, yc, 9);
+      yc -= 14;
+    }
+    if (!lignes.length) ecrire(page, "Aucune différence dans la liste des composants.", MARGE, yc, 10);
+  }
 
   // Couches modifiées
   for (const p of o.paires.filter((q) => q.etat === "differences" && q.a?.gpu && q.b?.gpu)) {

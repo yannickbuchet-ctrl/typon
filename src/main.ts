@@ -6,7 +6,8 @@ const racine = document.getElementById("typon")!;
 racine.replaceChildren();
 racine.classList.add("app");
 try {
-  new App(racine);
+  // Exposée pour les essais automatiques (scripts/essai-navigateur.mjs).
+  (window as unknown as { __typon: App }).__typon = new App(racine);
 } catch (e) {
   racine.textContent = (e as Error).message;
 }

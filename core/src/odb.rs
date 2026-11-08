@@ -213,7 +213,7 @@ pub fn lire(fichiers: &[Fichier]) -> Result<Odb, String> {
                         ("Pièce".into(), comp.piece.clone()),
                         ("Boîtier".into(), comp.boitier.clone()),
                         ("Position".into(), format!("X {} ; Y {} mm", nombre(comp.x), nombre(comp.y))),
-                        ("Rotation".into(), format!("{}°", nombre(comp.rotation))),
+                        ("Rotation".into(), format!("{}° (sens trigonométrique)", nombre((360.0 - comp.rotation).rem_euclid(360.0)))),
                         ("Côté".into(), if dessous { "dessous".into() } else { "dessus".into() }),
                     ];
                     if !comp.valeur.is_empty() {
