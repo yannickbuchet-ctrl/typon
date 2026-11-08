@@ -305,7 +305,7 @@ export class App {
     } },
       el("div", { class: "depot-icone", html: icone("couches", 44) }),
       el("p", { class: "depot-titre", text: "Déposez vos fichiers de fabrication ici" }),
-      el("p", { class: "depot-texte", text: "Gerber (RS-274X, X2, X3), perçages Excellon, fichiers de job, archives ZIP ou ODB++ (.tgz, .zip ou dossier)." }),
+      el("p", { class: "depot-texte", text: "Gerber (RS-274X, X2, X3, et RS-274D avec sa liste d'ouvertures), perçages Excellon, fichiers de job, ODB++ (.tgz, .zip ou dossier), IPC-2581 (.xml), archives ZIP." }),
       el("div", { class: "depot-boutons" },
         el("button", { type: "button", class: "bouton principal", html: `${icone("ouvrir")}<span>Choisir des fichiers</span>`, onclick: async (e: Event) => {
           e.stopPropagation();
@@ -320,16 +320,16 @@ export class App {
       el("span", { class: "carte-texte" }, el("strong", { text: x.titre }), el("span", { text: x.texte })))));
     const atouts = el("ul", { class: "atouts" },
       ...[
-        ["Tous les formats", "Gerber X1, X2 et X3, Excellon et XNC, fichiers de job, ODB++ 7 et 8, archives ZIP et TGZ."],
+        ["Tous les formats", "Gerber RS-274D, X1, X2 et X3, Excellon et XNC, fichiers de job, ODB++ 7 et 8, IPC-2581 A, B et C, archives ZIP et TGZ."],
         ["Comparaison précise", "Superposition, côte à côte ou en alternance, zones de différence listées et rapport PDF."],
-        ["ODB++ lisible", "Matrice des couches, composants, nets, nomenclature et perçages en tableaux."],
+        ["ODB++ et IPC-2581 lisibles", "Couches, composants, nets, nomenclature et perçages en tableaux."],
         ["Confidentiel", "Tout est calculé dans votre navigateur par un moteur en WebAssembly : rien n'est envoyé."],
       ].map(([t, x]) => el("li", {}, el("strong", { text: t }), el("span", { text: x }))));
     return el("div", { class: "accueil" },
       el("div", { class: "accueil-contenu" },
         el("div", { class: "accueil-titre" },
           el("h1", {}, "Vos typons, ", el("span", { class: "degrade", text: "lisibles" }), " et ", el("span", { class: "degrade", text: "comparables" })),
-          el("p", { class: "sous-titre", text: "Visionneuse et comparateur de fichiers de fabrication de circuits imprimés : Gerber, perçages et ODB++, directement dans le navigateur." })),
+          el("p", { class: "sous-titre", text: "Visionneuse et comparateur de fichiers de fabrication de circuits imprimés : Gerber, perçages, ODB++ et IPC-2581, directement dans le navigateur." })),
         depot,
         el("h2", { class: "titre-exemples", text: "Pour essayer" }),
         exemples,
@@ -772,7 +772,7 @@ export class App {
     const cmp = this.comparaison!;
     const ul = el("ul", { class: "liste-couches paires" });
     if (!this.docB) {
-      return el("div", { class: "invite", "data-depot": "B" }, el("div", { class: "invite-icone", html: icone("comparer", 36) }), el("p", { text: "Déposez ici la version B (nouvelle version) : Gerber, archive ZIP ou ODB++. Elle peut être dans un autre format que la version A." }), el("button", { type: "button", class: "bouton principal", html: `${icone("ouvrir")}<span>Choisir la version B</span>`, onclick: async () => this.ouvrirFichiers(await this.choisirFichiers(), "B") }));
+      return el("div", { class: "invite", "data-depot": "B" }, el("div", { class: "invite-icone", html: icone("comparer", 36) }), el("p", { text: "Déposez ici la version B (nouvelle version) : Gerber, archive ZIP, ODB++ ou IPC-2581. Elle peut être dans un autre format que la version A." }), el("button", { type: "button", class: "bouton principal", html: `${icone("ouvrir")}<span>Choisir la version B</span>`, onclick: async () => this.ouvrirFichiers(await this.choisirFichiers(), "B") }));
     }
     cmp.paires.forEach((p, i) => {
       const ref = (p.a ?? p.b)!;
@@ -884,7 +884,7 @@ export class App {
     if (!p) return racine;
     racine.append(el("h3", { class: "titre-paire", text: p.libelle }));
     if (p.etat === "representation") {
-      racine.append(el("p", { class: "vide", text: "Les deux versions représentent les composants différemment (points du Gerber X3, contours des boîtiers en ODB++) : leur dessin n'est pas comparable. La comparaison de la liste des composants est ci-dessous." }));
+      racine.append(el("p", { class: "vide", text: "Les deux versions représentent les composants différemment (points du Gerber X3, contours des boîtiers en ODB++ ou IPC-2581) : leur dessin n'est pas comparable. La comparaison de la liste des composants est ci-dessous." }));
       racine.append(this.differencesComposants());
       return racine;
     }

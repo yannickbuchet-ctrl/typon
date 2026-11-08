@@ -55,6 +55,8 @@ pub struct Odb {
     pub nets: Vec<(String, usize)>,
     pub alertes: Vec<String>,
     pub unite: String,
+    /// « ODB++ » ou « IPC-2581 » (le lecteur IPC-2581 produit la même structure).
+    pub format: &'static str,
 }
 
 /// Accès aux fichiers de l'archive, par chemin relatif à la racine du produit ODB++, sans tenir compte de la casse.
@@ -276,7 +278,7 @@ pub fn lire(fichiers: &[Fichier]) -> Result<Odb, String> {
     if police.is_none() {
         alertes.push("Police fonts/standard absente : les textes ne sont pas dessinés.".into());
     }
-    Ok(Odb { info, etape, etapes, couches: couches_odb, composants, nets, alertes, unite: unite_defaut })
+    Ok(Odb { info, etape, etapes, couches: couches_odb, composants, nets, alertes, unite: unite_defaut, format: "ODB++" })
 }
 
 fn libelle_info(k: &str) -> String {
@@ -652,12 +654,114 @@ fn dessiner_features(texte: &str, dessin: &mut Dessin, symboles: &mut Symboles, 
                     }
                 }
             }
+            "B" => {
+                // B x y UPC39 police polarité orient… E w h fasc cs bg astr astr_pos 'texte'
+                let sombre = c.get(5).map(|v| *v != "N").unwrap_or(true);
+                let mut i = 6;
+                let (angle, miroir) = orientation(&c, &mut i);
+                if c.get(i) == Some(&"E") {
+                    i += 1;
+                }
+                let (w, h) = (f(i) * k, f(i + 1) * k);
+                let oui = |j: usize| c.get(j).map(|v| v.eq_ignore_ascii_case("Y")).unwrap_or(false);
+                let (ascii_complet, controle, fond, avec_texte) = (oui(i + 2), oui(i + 3), oui(i + 4), oui(i + 5));
+                let texte_en_haut = c.get(i + 6).map(|v| v.eq_ignore_ascii_case("T")).unwrap_or(false);
+                let texte = corps.find('\'').and_then(|d| corps.rfind('\'').filter(|&e| e > d).map(|e| corps[d + 1..e].to_string())).unwrap_or_default();
+                info.push(("Code-barres".into(), format!("code 39 « {texte} »")));
+                ajouter_attributs(&mut info, attrs, &attributs, &textes, net.as_deref());
+                let objet = dessin.nouvel_objet(info);
+                let tt = t.apres(&placement(f(1) * k, f(2) * k, angle, miroir));
+                let modules = code39(&texte, ascii_complet, controle);
+                let largeur = modules.len() as f64 * w;
+                let hauteur_texte = if avec_texte { (h * 0.22).max(w * 6.0) } else { 0.0 };
+                // Le texte, s'il est en dessous, décale les barres vers le haut.
+                let y_barres = if avec_texte && !texte_en_haut { hauteur_texte * 1.3 } else { 0.0 };
+                if fond {
+                    let m = w * 4.0;
+                    let haut = h + if avec_texte { hauteur_texte * 1.3 } else { 0.0 };
+                    let p = Prim::Boite { c: pt(largeur / 2.0, haut / 2.0), hw: largeur / 2.0 + m, hh: haut / 2.0 + m, ang: 0.0, rad: 0.0 };
+                    dessin.ajoute(p.transformee(&tt), sombre, objet);
+                }
+                let barres = if fond { !sombre } else { sombre };
+                let mut x = 0.0;
+                let mut debut: Option<f64> = None;
+                for (j, &barre) in modules.iter().chain(std::iter::once(&false)).enumerate() {
+                    if barre && debut.is_none() {
+                        debut = Some(x);
+                    }
+                    if !barre {
+                        if let Some(d0) = debut.take() {
+                            let p = Prim::Boite { c: pt((d0 + x) / 2.0, y_barres + h / 2.0), hw: (x - d0) / 2.0, hh: h / 2.0, ang: 0.0, rad: 0.0 };
+                            dessin.ajoute(p.transformee(&tt), barres, objet);
+                        }
+                    }
+                    let _ = j;
+                    x += w;
+                }
+                if avec_texte {
+                    if let Some(p) = police {
+                        let car = hauteur_texte * 0.8;
+                        let lt = texte.chars().count() as f64 * car;
+                        let y_texte = if texte_en_haut { h + hauteur_texte * 0.3 } else { 0.0 };
+                        let decal = Transfo::translation((largeur - lt) / 2.0, y_texte);
+                        for prim in p.dessiner(&texte, car, hauteur_texte, 1.0) {
+                            dessin.ajoute(prim.transformee(&decal).transformee(&tt), barres, objet);
+                        }
+                    }
+                }
+            }
             _ => {
                 let _ = idx;
             }
         }
     }
     index
+}
+
+/// Code 39 : suite de modules (vrai = barre) de largeur unitaire, barres larges de 3 modules, un module d'espace
+/// entre deux caractères, caractères de début et de fin « * ». `ascii_complet` : minuscules codées « +A »…
+/// `controle` : clé modulo 43 ajoutée.
+pub fn code39(texte: &str, ascii_complet: bool, controle: bool) -> Vec<bool> {
+    const ALPHABET: &str = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
+    const MOTIFS: [&str; 44] = [
+        "000110100", "100100001", "001100001", "101100000", "000110001", "100110000", "001110000", "000100101", "100100100", "001100100",
+        "100001001", "001001001", "101001000", "000011001", "100011000", "001011000", "000001101", "100001100", "001001100", "000011100",
+        "100000011", "001000011", "101000010", "000010011", "100010010", "001010010", "000000111", "100000110", "001000110", "000010110",
+        "110000001", "011000001", "111000000", "010010001", "110010000", "011010000", "010000101", "110000100", "011000100", "010101000",
+        "010100010", "010001010", "000101010", "010010100",
+    ];
+    let mut symboles: Vec<usize> = Vec::new();
+    for ch in texte.chars() {
+        if let Some(i) = ALPHABET.find(ch) {
+            symboles.push(i);
+        } else if ascii_complet && ch.is_ascii_lowercase() {
+            symboles.push(ALPHABET.find('+').unwrap());
+            symboles.push(ALPHABET.find(ch.to_ascii_uppercase()).unwrap());
+        } else if let Some(i) = ALPHABET.find(ch.to_ascii_uppercase()) {
+            symboles.push(i);
+        }
+    }
+    if controle {
+        let somme: usize = symboles.iter().sum();
+        symboles.push(somme % 43);
+    }
+    let mut modules = Vec::new();
+    let mut ajouter = |motif: &str, m: &mut Vec<bool>| {
+        for (j, large) in motif.chars().enumerate() {
+            let barre = j % 2 == 0;
+            for _ in 0..if large == '1' { 3 } else { 1 } {
+                m.push(barre);
+            }
+        }
+        m.push(false); // espace entre caractères
+    };
+    ajouter(MOTIFS[43], &mut modules);
+    for s in symboles {
+        ajouter(MOTIFS[s], &mut modules);
+    }
+    ajouter(MOTIFS[43], &mut modules);
+    modules.pop();
+    modules
 }
 
 struct Surface {

@@ -6,7 +6,11 @@
 Produit dans public/exemples/ :
     typon-demo-revA.zip      Gerber X2/X3, perçages XNC, fichier de job
     typon-demo-revB.zip      la révision B (quelques modifications à retrouver avec la comparaison)
-    typon-demo-revA-odb.tgz  la révision A en ODB++ 8.1
+    typon-demo-revA-odb.tgz  la révision A en ODB++ 8.1 (avec un code-barres de numéro de série)
+
+et dans core/tests/donnees/ (essais du moteur) :
+    rs274d-eagle.zip         cuivre et sérigraphie du dessus en Gerber RS-274D, avec une roue Eagle (.whl, pouces)
+    rs274d-protel.zip        les mêmes avec une liste d'ouvertures Protel (.apr, mils, zéros de fin omis)
 """
 import io
 import json
@@ -66,6 +70,39 @@ POLICE = {
     "+": [[(0, 3), (4, 3)], [(2, 1), (2, 5)]],
     "/": [[(0, 0), (4, 6)]],
 }
+
+
+# Code 39 (comme le lit Typon) : 1 = élément large (3 modules), 0 = étroit ; caractère de début et de fin « * ».
+CODE39 = dict(zip("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%*", [
+    "000110100", "100100001", "001100001", "101100000", "000110001", "100110000", "001110000", "000100101", "100100100", "001100100",
+    "100001001", "001001001", "101001000", "000011001", "100011000", "001011000", "000001101", "100001100", "001001100", "000011100",
+    "100000011", "001000011", "101000010", "000010011", "100010010", "001010010", "000000111", "100000110", "001000110", "000010110",
+    "110000001", "011000001", "111000000", "010010001", "110010000", "011010000", "010000101", "110000100", "011000100", "010101000",
+    "010100010", "010001010", "000101010", "010010100"]))
+ALPHABET39 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%"
+CODE_BARRES = (21.65, 5.3, "TD-0001", 0.13, 2.4)  # x, y (coin inférieur gauche), texte, barre fine, hauteur (mm)
+
+
+def barres_code39(x, y, texte, w, h, controle=True):
+    """Rectangles (x0, y0, x1, y1) des barres d'un code 39 avec clé de contrôle."""
+    symboles = list(texte)
+    if controle:
+        symboles.append(ALPHABET39[sum(ALPHABET39.index(c) for c in texte) % 43])
+    modules = []
+    for ch in ["*"] + symboles + ["*"]:
+        for j, large in enumerate(CODE39[ch]):
+            modules += [j % 2 == 0] * (3 if large == "1" else 1)
+        modules.append(False)
+    modules.pop()
+    rects = []
+    debut = None
+    for i, barre in enumerate(modules + [False]):
+        if barre and debut is None:
+            debut = i
+        if not barre and debut is not None:
+            rects.append((x + debut * w, y, x + i * w, y + h))
+            debut = None
+    return rects
 
 
 def texte_en_traits(texte, x, y, hauteur, centre=False, miroir=False):
@@ -409,6 +446,11 @@ def gerber_serigraphie(c, cote):
     g.ouverture("C", "0.150", "Other,Legend")
     for a, b in c.serigraphie[cote]:
         g.trait([a, b])
+    if cote == "top":
+        # Code-barres du numéro de série : des rectangles, comme l'écrivent les logiciels de CAO en Gerber.
+        g.objet()
+        for x0, y0, x1, y1 in barres_code39(*CODE_BARRES):
+            g.region([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], fonction="Other,Legend")
     return g.texte()
 
 
@@ -673,6 +715,11 @@ def odb(c):
         f = Features()
         for a, b in c.serigraphie[cote]:
             f.trait(a, b, 0.15)
+        if cote == "top":
+            # Numéro de série en code 39 (barre fine 0,13 mm, hauteur 2,4 mm, clé de contrôle, sans texte).
+            x, y, texte, w, h = CODE_BARRES
+            f.lignes.append(f"B {x:.4f} {y:.4f} UPC39 standard P 0 E {w} {h} N Y N N B '{texte}'")
+            f.n += 1
         fichiers[f"steps/pcb/layers/{nom}/features"] = f.texte()
     # Perçages et outils
     for nom, plated in (("drill", True), ("npth", False)):
@@ -742,6 +789,87 @@ def odb(c):
     return tampon.getvalue()
 
 
+def rs274d(c, style):
+    """Cuivre et sérigraphie du dessus en RS-274D (sans format ni ouvertures), avec leur liste d'ouvertures séparée.
+    style « eagle » : roue .whl en pouces, coordonnées 2.4 zéros de tête omis ; « protel » : liste .apr en mils,
+    coordonnées 2.4 zéros de fin omis."""
+    ouvertures = {}
+
+    def code(forme, a, b=None):
+        cle = (forme, round(a, 4), round(b if b is not None else a, 4))
+        if cle not in ouvertures:
+            ouvertures[cle] = 10 + len(ouvertures)
+        return ouvertures[cle]
+
+    def xy(x, y):
+        def c1(v):
+            n = int(round(v / 25.4 * 10000))
+            if style == "eagle":
+                return str(n)
+            # zéros de fin omis : 6 chiffres (2.4) avec zéros de tête, puis les zéros de fin retirés
+            s = f"{abs(n):06d}".rstrip("0") or "0"
+            return ("-" if n < 0 else "") + s
+        return f"X{c1(x)}Y{c1(y)}"
+
+    fichiers = {}
+    for couche, nom in (("cuivre", "F_Cu"), ("serigraphie", "F_Silkscreen")):
+        lignes = ["G04 Typon : carte d'exemple fictive en RS-274D (licence MIT)*"]
+        courant = None
+
+        def choisir(n):
+            nonlocal courant
+            if n != courant:
+                lignes.append(f"G54D{n}*")
+                courant = n
+
+        if couche == "cuivre":
+            for t in c.pistes:
+                if t["couche"] == "top":
+                    choisir(code("round", t["largeur"]))
+                    lignes.append(xy(*t["points"][0]) + "D02*")
+                    for q in t["points"][1:]:
+                        lignes.append(xy(*q) + "D01*")
+            for p_ in c.pastilles:
+                if p_["couche"] in ("all", "top"):
+                    w, h = p_["w"], p_["h"]
+                    if p_["rot"] % 180 == 90:
+                        w, h = h, w
+                    forme = {"rect": "rectangle", "oval": "oval"}.get(p_["forme"], "round")
+                    choisir(code(forme, w, h))
+                    lignes.append(xy(p_["x"], p_["y"]) + "D03*")
+            for v in c.vias:
+                choisir(code("round", v["d"]))
+                lignes.append(xy(v["x"], v["y"]) + "D03*")
+        else:
+            choisir(code("round", 0.15))
+            for a, b in c.serigraphie["top"]:
+                lignes.append(xy(*a) + "D02*")
+                lignes.append(xy(*b) + "D01*")
+        lignes.append("M02*")
+        fichiers[f"typon-demo-{nom}.{'cmp' if couche == 'cuivre' and style == 'eagle' else 'gtl' if couche == 'cuivre' else 'plc' if style == 'eagle' else 'gto'}"] = "\n".join(lignes) + "\n"
+    if style == "eagle":
+        roue = ["; Aperture wheel (Eagle style) - Typon demo"]
+        for (forme, a, b), n in sorted(ouvertures.items(), key=lambda x: x[1]):
+            if forme == "round":
+                roue.append(f"D{n}\tround\t{a / 25.4:.4f}")
+            else:
+                roue.append(f"D{n}\t{forme}\t{a / 25.4:.4f} x {b / 25.4:.4f}")
+        fichiers["typon-demo.whl"] = "\n".join(roue) + "\n"
+    else:
+        apr = ["Protel aperture list - dimensions in mils", ""]
+        noms = {"round": "ROUNDED", "rectangle": "RECTANGULAR", "oval": "OBLONG"}
+        for (forme, a, b), n in sorted(ouvertures.items(), key=lambda x: x[1]):
+            apr.append(f"D{n}  {noms[forme]:<12}{a / 0.0254:9.3f}{b / 0.0254:9.3f}    0.000   0.000      0.0   LINE   0.00")
+        fichiers["typon-demo.apr"] = "\n".join(apr) + "\n"
+    tampon = io.BytesIO()
+    with zipfile.ZipFile(tampon, "w", zipfile.ZIP_DEFLATED) as z:
+        for nom, texte in fichiers.items():
+            info = zipfile.ZipInfo(nom, date_time=(2026, 11, 9, 10, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            z.writestr(info, texte)
+    return tampon.getvalue()
+
+
 def main():
     os.makedirs(SORTIE, exist_ok=True)
     a = construire("A")
@@ -750,6 +878,13 @@ def main():
         with open(os.path.join(SORTIE, nom), "wb") as f:
             f.write(donnees)
         print(f"{nom} : {len(donnees) / 1024:.0f} Ko")
+    essais = os.path.join(RACINE, "core", "tests", "donnees")
+    os.makedirs(essais, exist_ok=True)
+    for style in ("eagle", "protel"):
+        donnees = rs274d(a, style)
+        with open(os.path.join(essais, f"rs274d-{style}.zip"), "wb") as f:
+            f.write(donnees)
+        print(f"core/tests/donnees/rs274d-{style}.zip : {len(donnees) / 1024:.0f} Ko")
 
 
 if __name__ == "__main__":

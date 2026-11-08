@@ -19,7 +19,7 @@ export interface DescriptionCouche {
   id: number;
   nom: string;
   fichier: string;
-  format: "Gerber" | "Excellon" | "ODB++";
+  format: "Gerber" | "Excellon" | "ODB++" | "IPC-2581";
   role: Role;
   boite: [number, number, number, number];
   objets: number;
@@ -62,6 +62,8 @@ export interface Description {
     couchesCuivre: number;
     job?: { fichier: string; rubriques: { titre: string; lignes: [string, string][] }[]; empilage: { nom: string; type: string; epaisseur: number | null; materiau: string }[] };
     odb?: {
+      /** « ODB++ » ou « IPC-2581 » : les deux formats sont présentés de la même façon. */
+      source?: string;
       info: [string, string][];
       etape: string;
       etapes: string[];
@@ -73,6 +75,7 @@ export interface Description {
     nomenclature?: { piece: string; valeur: string; quantite: number; references: string[] }[];
     nets?: { nom: string; elements: number | null }[];
     netlist?: { fichier: string; nets: number };
+    listesOuvertures?: { fichier: string; ouvertures: number; unite: string }[];
   };
   alertes: string[];
   ignores: string[];

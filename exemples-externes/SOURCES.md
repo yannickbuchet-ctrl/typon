@@ -31,3 +31,12 @@ Normes (dossier `specs/`) : Gerber Layer Format révision 2026-05, XNC 2021-11, 
 | `odb/sample_design.tgz` | <https://github.com/nam20485/OdbDesignTestData> | Licence non indiquée |
 
 Norme (dossier `specs/`) : ODB++ Format Specification v8.1 update 4 (<https://odbplusplus.com>).
+
+## IPC-2581
+
+| Fichier | Source | Remarque |
+|---|---|---|
+| `ipc2581/tc/…` | <https://www.ipc2581.com/ipc-2581-revc-test-cases/> | Cas de test 3, 10 et 11 du consortium (Cadence Allegro : assemblage, fabrication, complet, rigide-flexible) ; licence non indiquée |
+| `ipc2581/royalblue54l-feather.xml`, `fomu-pvt.xml`, `miao.xml`, `blind-buried-vias.xml`, `egg-ldo-panel.xml`, `antenna.xml` | <https://github.com/midub/boardui> (`spec/samples/`) | Exports KiCad 9 et 10 de cartes libres (CERN-OHL, CC BY-SA, MIT, BSD : voir le dépôt) |
+| `ipc2581/LDO-PCB.cvg` | même dépôt | Export Altium (révision A), MIT |
+| `ipc2581/*.xml` (autres) | même dépôt (`hand-written/`) | Petits fichiers écrits pour tester un point de la norme (AGPL, comme le dépôt) |

@@ -27,10 +27,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # Moteur : cartes d'exemple du site (les fichiers de test externes ne sont pas dans le dépôt).
+      # Moteur : cartes d'exemple du site, RS-274D et code-barres (les fichiers de test externes ne sont pas dans le dépôt).
       - name: Essais du moteur
         working-directory: core
-        run: cargo test --release --test exemples exemples_du_site
+        run: cargo test --release --test exemples -- exemples_du_site rs274d listes_d_ouvertures code_barres
       - name: Construire
         run: npm run build
         env:

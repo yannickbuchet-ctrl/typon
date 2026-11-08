@@ -51,7 +51,7 @@ export function apparier(a: DocumentTypon, b: DocumentTypon): Paire[] {
     if (i < 0) i = restantsB.findIndex((cb) => cb.desc.fichier.toLowerCase() === ca.desc.fichier.toLowerCase());
     if (i < 0 && k.startsWith("percage")) i = restantsB.findIndex((cb) => cle(cb).startsWith("percage"));
     const cb = i >= 0 ? restantsB.splice(i, 1)[0] : undefined;
-    // Couches de composants de formats différents (points du Gerber X3, contours des boîtiers en ODB++) : leur dessin
+    // Couches de composants de formats différents (points du Gerber X3, contours des boîtiers en ODB++ ou IPC-2581) : leur dessin
     // n'est pas comparable ; la liste des composants l'est.
     const representation = cb && ca.desc.role.genre === "composants" && ca.desc.format !== cb.desc.format;
     paires.push({ cle: k, libelle: ca.desc.nom, a: ca, b: cb, etat: !cb ? "seulement-a" : representation ? "representation" : "a-analyser", zones: [] });

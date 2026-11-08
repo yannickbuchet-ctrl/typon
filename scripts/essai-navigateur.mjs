@@ -179,6 +179,55 @@ try {
   const listeComp = await page.locator(".composants-differences").textContent();
   verifier(listeComp.includes("11 composants sont identiques"), `composants Gerber ↔ ODB++ : ${listeComp}`);
   await page.screenshot({ path: path.join(captures, "comparaison-gerber-odb.png") });
+
+  // Code-barres ODB++ (numéro de série de la carte d'exemple)
+  await page.locator(".marque").click();
+  await page.getByRole("button", { name: /La même en ODB\+\+/ }).click();
+  await attendreEtat(page, /couches lues/);
+  await page.evaluate(() => window.__typon.allerA(21.71, 6.5, 2));
+  await page.waitForTimeout(800);
+  const vb2 = await page.locator(".visionneuse").boundingBox();
+  await page.mouse.click(vb2.x + vb2.width / 2, vb2.y + vb2.height / 2);
+  await page.waitForTimeout(600);
+  const infoBarre = await page.locator(".contenu-onglet").textContent();
+  verifier(infoBarre.includes("code 39") && infoBarre.includes("TD-0001"), `code-barres : ${infoBarre.slice(0, 200)}`);
+  await page.screenshot({ path: path.join(captures, "odb-code-barres.png") });
+  bilan.push("Code-barres ODB++ : code 39 « TD-0001 » dessiné et sélectionnable");
+
+  // Gerber RS-274D avec sa roue d'ouvertures (Eagle)
+  await page.locator(".marque").click();
+  {
+    const [choix] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Choisir des fichiers" }).click()]);
+    await choix.setFiles(path.join(racine, "core/tests/donnees/rs274d-eagle.zip"));
+  }
+  await attendreEtat(page, /couches lues/);
+  await page.waitForTimeout(800);
+  await page.getByRole("tab", { name: /Fichiers/ }).click();
+  await page.locator(".liste-fichiers button", { hasText: "Cuivre dessus" }).click();
+  const details = await page.locator(".contenu-onglet").textContent();
+  verifier(details.includes("Gerber RS-274D") && details.includes("typon-demo.whl") && details.includes("supposé"), `RS-274D : ${details.slice(0, 400)}`);
+  await page.screenshot({ path: path.join(captures, "rs274d.png") });
+  bilan.push("RS-274D : ouvertures lues dans la roue Eagle, format des coordonnées déduit");
+
+  // IPC-2581 (export KiCad réel, s'il a été téléchargé)
+  const ipc = path.join(racine, "exemples-externes/ipc2581/royalblue54l-feather.xml");
+  if (fs.existsSync(ipc)) {
+    await page.locator(".marque").click();
+    const [choix] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Choisir des fichiers" }).click()]);
+    await choix.setFiles(ipc);
+    await attendreEtat(page, /couches lues/, 120000);
+    await page.waitForTimeout(2000);
+    await page.getByRole("tab", { name: /Carte/ }).click();
+    const carte = await page.locator(".contenu-onglet").textContent();
+    verifier(carte.includes("Fichier IPC-2581") && carte.includes("KiCad"), `IPC-2581 : ${carte.slice(0, 300)}`);
+    await page.screenshot({ path: path.join(captures, "ipc2581.png") });
+    await page.getByRole("tab", { name: /Nomenclature/ }).click();
+    const nbBom = await page.locator(".contenu-onglet tbody tr").count();
+    verifier(nbBom > 10, `IPC-2581 : nomenclature ${nbBom}`);
+    bilan.push(`IPC-2581 (KiCad 9, Feather) : ${await etat(page)} ; nomenclature de ${nbBom} lignes`);
+  } else {
+    bilan.push("IPC-2581 : exemple externe absent (node scripts/telecharger-exemples.mjs)");
+  }
   await contexte.close();
 
   /* Téléphone */

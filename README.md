@@ -1,7 +1,8 @@
 # Typon
 
 **Visionneuse et comparateur de fichiers de fabrication de circuits imprimés**, dans le navigateur : Gerber
-(RS-274X, X2, X3), perçages Excellon et XNC, fichiers de job, ODB++. Pour les concepteurs électroniques qui veulent
+(RS-274X, X2, X3, et l'ancien RS-274D avec sa liste d'ouvertures), perçages Excellon et XNC, fichiers de job, ODB++,
+IPC-2581. Pour les concepteurs électroniques qui veulent
 vérifier ce qu'ils envoient au fabricant, et ce qui a changé d'une révision à l'autre.
 
 **Ouvrir Typon : <https://yannickbuchet-ctrl.github.io/typon/>**
@@ -24,10 +25,12 @@ Rien à installer : un navigateur récent suffit (Chrome, Edge, Firefox, Safari)
 | **Gerber RS-274X** | Toutes les ouvertures standard et les macros (cercle, ligne, contour, polygone, thermique, moiré), parties non exposées des macros comme trous transparents, régions (G36/G37) avec arcs, arcs à quadrant unique et multiple, polarités claires et sombres (LP), miroir, rotation et échelle (LM, LR, LS), blocs d'ouverture imbriqués (AB), répétitions (SR), commandes anciennes (G54, G70/G71, IP, coordonnées incrémentales…) |
 | **Gerber X2** | Attributs de fichier (fonction de la couche, logiciel, date, projet, polarité), d'ouverture (pastille CMS, via, conducteur…) et d'objet (net, composant, broche) |
 | **Gerber X3** | Couches de composants : repère, valeur, boîtier, référence fabricant, rotation, côté |
+| **Gerber RS-274D** | Avec son fichier d'ouvertures séparé, déposé avec lui : roue Eagle (`.whl`), liste Altium ou Protel (`.apr`), tableau de D-codes (cercle, carré, rectangle, oblong, octogone, anneau, thermique ; pouces, mils ou mm), ou commandes `%AD` dans un fichier à part. Le format des coordonnées, absent de ces fichiers, est déduit des coordonnées (une remarque le rappelle) |
 | **Excellon et XNC** | Outils, trous, rainures (G85), fraisages (G00 à G03), répétitions, zéros omis, pouces ou mm, attributs X2 des perçages KiCad et XNC |
 | **Fichier de job** (`.gbrjob`) | Taille, épaisseur, finition, empilage, règles de conception, rôle de chaque fichier |
 | **Netlist IPC-D-356** | Liste des nets |
-| **ODB++** 7 et 8 | Archive `.tgz`, `.zip` ou dossier ; matrice des couches, étapes et panneaux (step-repeat), pastilles, traits, arcs, surfaces, textes (police `standard`), symboles standard (ronds, rectangles arrondis ou chanfreinés, ovales, beignets, thermiques, octogones…) et symboles utilisateur, composants et boîtiers, nets, outils de perçage, informations du fichier ; fichiers compressés `.Z` |
+| **ODB++** 7 et 8 | Archive `.tgz`, `.zip` ou dossier ; matrice des couches, étapes et panneaux (step-repeat), pastilles, traits, arcs, surfaces, textes (police `standard`), codes-barres (code 39, ASCII étendu, clé de contrôle, fond inversé, texte), symboles standard (ronds, rectangles arrondis ou chanfreinés, ovales, beignets, thermiques, octogones…) et symboles utilisateur, composants et boîtiers, nets, outils de perçage, informations du fichier ; fichiers compressés `.Z` |
+| **IPC-2581** révisions A, B et C | Fichier XML (`.xml`, `.cvg`) : couches et empilage, profil de la carte, traits, arcs, polylignes, contours avec découpes, pastilles par primitives standard (cercle, rectangles droits, arrondis ou chanfreinés, ovale, losange, ellipse, hexagone, octogone, triangle, beignet, thermique, papillon, moiré) ou utilisateur, piles de pastilles (KiCad) et `PadStack` (Altium), perçages et rainures, composants et boîtiers, nomenclature, nets, en-tête (logiciel, auteur, dates). Essayé sur les cas de test du consortium (Cadence Allegro), des exports KiCad 9 et 10 et un export Altium |
 | **Archives** | ZIP, TAR, TGZ, y compris imbriquées ; un dossier entier peut être déposé |
 
 Le rôle de chaque couche (cuivre dessus, interne, dessous, masque, sérigraphie, pâte, perçage, contour…) vient des
@@ -54,7 +57,7 @@ Eagle, OrCAD, LibrePCB).
 
 ![Exemple ODB++ : nomenclature regroupée](captures/odb-nomenclature.png)
 
-Les données d'un fichier ODB++ sont présentées en tableaux filtrables et triables : **matrice des couches** (type,
+Les données d'un fichier ODB++ ou IPC-2581 sont présentées en tableaux filtrables et triables : **matrice des couches** (type,
 rôle, couches reliées par les perçages), **composants** (repère, valeur, boîtier, pièce, côté, rotation ; un clic
 centre la vue sur le composant), **nomenclature** regroupée par pièce et valeur, **nets** avec leur nombre
 d'éléments, **perçages** par outil (métallisé, non métallisé, via, diamètres de perçage et fini). Les pistes et
@@ -103,11 +106,11 @@ fixation agrandis, sérigraphie modifiée. Ces fichiers sont générés par `scr
 
 ## Limites connues
 
-- **RS-274D** (Gerber sans ouvertures dans le fichier) : le fichier d'ouvertures séparé n'est pas lu ; les tracés
-  sont dessinés en trait fin, avec un avertissement.
-- **IPC-2581** n'est pas pris en charge.
-- **ODB++** : les codes-barres ne sont pas dessinés ; seule l'étape de la carte est affichée quand le produit
-  contient aussi un panneau.
+- **RS-274D** : sans sa liste d'ouvertures, les tracés sont dessinés en trait fin, avec un avertissement. Avec elle, le
+  format des coordonnées est deviné (2.4 ou 2.3 pouces, 3.3 mm…) : vérifiez les dimensions de la carte.
+- **IPC-2581** : les textes décrits par une police (élément `Text`) ne sont pas dessinés (les logiciels les écrivent
+  le plus souvent en traits) ; les fichiers de révision A de Zuken CR5000 (`LayerDesc`, `StepList`) ne sont pas lus.
+- **ODB++** : seule l'étape de la carte est affichée quand le produit contient aussi un panneau.
 - Les arcs sont approchés par des segments à 1 µm près.
 
 ## Développement
@@ -123,7 +126,8 @@ npm run build        # moteur WebAssembly, vérification TypeScript, site dans d
 
 Structure :
 
-- `core/` — moteur Rust : `gerber.rs`, `excellon.rs`, `job.rs`, `odb.rs`, `archive.rs` (ZIP, TAR, gzip, LZW),
+- `core/` — moteur Rust : `gerber.rs`, `ouvertures.rs` (listes d'ouvertures du RS-274D), `excellon.rs`, `job.rs`,
+  `odb.rs`, `ipc2581.rs`, `archive.rs` (ZIP, TAR, gzip, LZW),
   `couches.rs` (rôle des couches), `geom.rs` (primitives, triangulation, opérations booléennes, index spatial),
   `zones.rs` (zones de différence), `lib.rs` (interface WebAssembly, sans wasm-bindgen).
 - `src/moteur/` — Web Worker qui charge le moteur, et son client ; `src/rendu/` — affichage WebGL2 ; `src/ui/` —
@@ -139,8 +143,10 @@ node scripts/essai-navigateur.mjs         # après npm run build : parcours comp
 ```
 
 Les essais du moteur comparent le rendu des fichiers de test de la norme Gerber (Ucamco) à leurs images de
-référence, et lisent tous les jeux d'exemple (cartes KiCad et LibrePCB en X2/X3, XNC, fichiers de job, ODB++ officiel
-et exports KiCad). Le parcours dans le navigateur vérifie l'affichage, l'inspecteur, l'ODB++, la comparaison (dont
+référence, lisent tous les jeux d'exemple (cartes KiCad et LibrePCB en X2/X3, XNC, fichiers de job, ODB++ officiel
+et exports KiCad, IPC-2581 du consortium, de KiCad et d'Altium), vérifient que la carte d'exemple en RS-274D (roue
+Eagle, liste Protel) donne le même dessin que sa version X2, et que le code-barres ODB++ correspond à celui que le
+générateur calcule de son côté. Le parcours dans le navigateur vérifie l'affichage, l'inspecteur, l'ODB++, la comparaison (dont
 Gerber contre ODB++ de la même carte, qui doit donner des couches identiques) et le rapport PDF.
 
 `.github/workflows/pages.yml` teste, construit et publie le site sur GitHub Pages ; il ne se lance qu'à la main.
@@ -150,6 +156,6 @@ Gerber contre ODB++ de la même carte, qui doit donner des couches identiques) e
 - Logiciel écrit par **Claude Code** (Claude Opus 5.5) sous la direction de **Yannick Buchet**.
 - Composants tiers : voir [LICENCES-TIERCES.md](LICENCES-TIERCES.md).
 - Normes : *The Gerber Layer Format Specification* et *Gerber Job Format* (Ucamco), *XNC Format* (Ucamco),
-  *ODB++ Format Specification* (Siemens).
+  *ODB++ Format Specification* (Siemens), IPC-2581 (consortium IPC-2581).
 
 Licence MIT.

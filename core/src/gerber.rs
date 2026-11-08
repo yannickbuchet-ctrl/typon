@@ -216,7 +216,51 @@ struct Lecteur {
 
 /// Lit un fichier Gerber.
 pub fn lire(texte: &str) -> Gerber {
-    let mut l = Lecteur {
+    let mut l = nouveau_lecteur();
+    l.lire(texte);
+    l.fin()
+}
+
+/// Lit un fichier Gerber RS-274D (sans définition d'ouvertures ni de format) avec une liste d'ouvertures séparée.
+/// Le format des coordonnées est déduit des coordonnées elles-mêmes.
+pub fn lire_rs274d(texte: &str, liste: &crate::ouvertures::Liste, nom_liste: &str) -> Gerber {
+    use crate::ouvertures::Forme;
+    let mut l = nouveau_lecteur();
+    let (ent, dec, zeros_tete_omis, k) = crate::ouvertures::format_probable(texte);
+    l.entiers = ent;
+    l.decimales = dec;
+    l.zeros_tete_omis = zeros_tete_omis;
+    l.facteur = k;
+    l.unite_definie = true;
+    l.res.unite = if k == 1.0 { "mm" } else { "pouce" };
+    l.res.format = format!("{ent}.{dec}{} (supposé)", if zeros_tete_omis { "" } else { " (zéros de fin omis)" });
+    // Thermique d'une liste d'ouvertures : macro à quatre branches.
+    l.macros.insert("THERMIQUE_EXTERNE".into(), vec![Instruction::Primitive(7, vec![Expr::Nombre(0.0), Expr::Nombre(0.0), Expr::Var(1), Expr::Var(2), Expr::Var(3), Expr::Nombre(45.0)])]);
+    for (code, o) in &liste.ouvertures {
+        let ouv = match o.forme {
+            Forme::Cercle => Ouverture::Cercle { d: o.a, trou: 0.0 },
+            Forme::Carre => Ouverture::Rect { w: o.a, h: o.a, trou: 0.0 },
+            Forme::Rectangle => Ouverture::Rect { w: o.a, h: o.b, trou: 0.0 },
+            Forme::Oblong => Ouverture::Obrond { w: o.a, h: o.b, trou: 0.0 },
+            Forme::Octogone => Ouverture::Polygone { d: o.a, n: 8, rot: std::f64::consts::PI / 8.0, trou: 0.0 },
+            Forme::Anneau => Ouverture::Cercle { d: o.a, trou: o.b.min(o.a * 0.95) },
+            Forme::Thermique => Ouverture::Macro { nom: "THERMIQUE_EXTERNE".into(), params: vec![o.a, o.b.min(o.a * 0.95), ((o.a - o.b) / 2.0).max(o.a * 0.1)] },
+        };
+        l.res.ouvertures.push((*code, decrire(&ouv, "mm"), None));
+        l.ouvertures.insert(*code, ouv);
+    }
+    l.res.alertes.push(format!(
+        "Gerber RS-274D : ouvertures lues dans « {nom_liste} » (dimensions en {}) ; coordonnées supposées au format {ent}.{dec} en {}, {}. Vérifiez les dimensions de la carte.",
+        liste.unite,
+        if k == 1.0 { "mm" } else { "pouces" },
+        if zeros_tete_omis { "zéros de tête omis" } else { "zéros de fin omis" }
+    ));
+    l.lire(texte);
+    l.fin()
+}
+
+fn nouveau_lecteur() -> Lecteur {
+    Lecteur {
         entiers: 3,
         decimales: 6,
         zeros_tete_omis: true,
@@ -260,9 +304,7 @@ pub fn lire(texte: &str) -> Gerber {
         },
         dessin_commence: false,
         alerte_d: false,
-    };
-    l.lire(texte);
-    l.fin()
+    }
 }
 
 impl Lecteur {
@@ -890,7 +932,7 @@ impl Lecteur {
             self.fin_cadre();
         }
         if !self.unite_definie && self.res.format.is_empty() {
-            self.alerte("Ni format (FS) ni unité (MO) : fichier RS-274D ou incomplet, dessin peut-être faux.");
+            self.alerte("Ni format (FS) ni unité (MO) : fichier RS-274D sans sa liste d'ouvertures. Déposez-la avec lui (.whl, .apr, liste de D-codes…) pour un dessin juste.");
         }
         let racine = self.cadres.pop().unwrap();
         let mut dessin = Dessin::default();

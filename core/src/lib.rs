@@ -9,8 +9,10 @@ pub mod couches;
 pub mod excellon;
 pub mod geom;
 pub mod gerber;
+pub mod ipc2581;
 pub mod job;
 pub mod odb;
+pub mod ouvertures;
 pub mod zones;
 
 use archive::Fichier;
@@ -247,12 +249,26 @@ pub fn analyser(lot: &mut Lot) -> Value {
         }
     }
 
+    // Listes d'ouvertures des Gerber RS-274D (roues Eagle, listes Altium/Protel, tableaux de D-codes…).
+    let mut listes: Vec<(String, ouvertures::Liste)> = Vec::new();
+    for f in &fichiers {
+        let nom = nom_court(&f.chemin).to_string();
+        let texte = String::from_utf8_lossy(&f.octets);
+        if !est_ignorable(&nom.to_ascii_lowercase()) && !excellon::reconnaitre(&texte) && ouvertures::reconnaitre(&nom, &texte) {
+            if let Some(l) = ouvertures::lire(&texte) {
+                listes.push((nom, l));
+            }
+        }
+    }
+    if !listes.is_empty() {
+        meta.insert("listesOuvertures".into(), json!(listes.iter().map(|(n, l)| json!({"fichier": n, "ouvertures": l.ouvertures.len(), "unite": l.unite})).collect::<Vec<_>>()));
+    }
     let mut composants: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     let mut nets_gerber: Vec<String> = Vec::new();
     for f in &fichiers {
         let nom = nom_court(&f.chemin).to_string();
         let bas = nom.to_ascii_lowercase();
-        if bas.ends_with(".gbrjob") {
+        if bas.ends_with(".gbrjob") || listes.iter().any(|(n, _)| *n == nom) {
             continue;
         }
         if est_ignorable(&bas) || f.octets.is_empty() {
@@ -260,6 +276,13 @@ pub fn analyser(lot: &mut Lot) -> Value {
             continue;
         }
         let texte = String::from_utf8_lossy(&f.octets);
+        if ipc2581::reconnaitre(&texte) {
+            match ipc2581::lire(&texte) {
+                Ok(o) => ajouter_odb(o, &mut couches, &mut meta),
+                Err(e) => alertes.push(format!("{nom} : {e}")),
+            }
+            continue;
+        }
         if est_ipc356(&bas, &texte) {
             let nets = ipc356_nets(&texte);
             meta.insert("netlist".into(), json!({"fichier": nom, "nets": nets.len()}));
@@ -298,7 +321,14 @@ pub fn analyser(lot: &mut Lot) -> Value {
             continue;
         }
         if est_gerber(&texte) {
-            let g = gerber::lire(&texte);
+            // RS-274D (ni format ni ouvertures dans le fichier) : on lui associe la liste d'ouvertures au nom le plus
+            // proche.
+            let rs274d = !texte.contains("%FS") && !texte.contains("%AD");
+            let liste = if rs274d { listes.iter().max_by_key(|(n, _)| prefixe_commun(n, &nom)) } else { None };
+            let g = match liste {
+                Some((n, l)) => gerber::lire_rs274d(&texte, l, n),
+                None => gerber::lire(&texte),
+            };
             let fonction = g.attributs.iter().find(|(n, _)| n == "FileFunction").map(|(_, v)| v.clone());
             let mut role = fonction.as_ref().and_then(|v| couches::depuis_x2(v))
                 .or_else(|| roles_job.get(&bas).and_then(|v| couches::depuis_x2(v)))
@@ -322,7 +352,7 @@ pub fn analyser(lot: &mut Lot) -> Value {
             }
             let nb = g.dessin.objets.len();
             let meta_c = json!({
-                "format": if g.attributs.is_empty() { "Gerber RS-274X" } else if !g.composants.is_empty() { "Gerber X3" } else { "Gerber X2" },
+                "format": if rs274d { "Gerber RS-274D" } else if g.attributs.is_empty() { "Gerber RS-274X" } else if !g.composants.is_empty() { "Gerber X3" } else { "Gerber X2" },
                 "unite": g.unite,
                 "notation": g.format,
                 "attributs": g.attributs.iter().map(|(n, v)| json!([libelle_tf(n), traduire_tf(n, v)])).collect::<Vec<_>>(),
@@ -409,6 +439,7 @@ fn ajouter_odb(o: odb::Odb, couches: &mut Vec<Couche>, meta: &mut serde_json::Ma
         bom.entry((c.piece.clone(), c.valeur.clone())).or_default().push(c.reference.clone());
     }
     meta.insert("odb".into(), json!({
+        "source": o.format,
         "info": o.info,
         "etape": o.etape,
         "etapes": o.etapes,
@@ -440,7 +471,7 @@ fn ajouter_odb(o: odb::Odb, couches: &mut Vec<Couche>, meta: &mut serde_json::Ma
             c.role.libelle = format!("{base} {}{etendue}", if non { "non métallisé" } else { "métallisé" });
         }
         let meta_c = json!({
-            "format": "ODB++",
+            "format": o.format,
             "typeOdb": c.type_odb,
             "contexte": c.contexte,
             "nomOdb": c.nom,
@@ -450,8 +481,13 @@ fn ajouter_odb(o: odb::Odb, couches: &mut Vec<Couche>, meta: &mut serde_json::Ma
             "elements": c.elements,
         });
         let nom = c.role.libelle.clone();
-        couches.push(Couche { nom, fichier: format!("steps/{}/layers/{}", o.etape, c.nom), format: "ODB++", role: c.role, dessin: c.dessin, index: None, meta: meta_c });
+        let fichier = if o.format == "ODB++" { format!("steps/{}/layers/{}", o.etape, c.nom) } else { format!("{} · {}", o.format, c.nom) };
+        couches.push(Couche { nom, fichier, format: o.format, role: c.role, dessin: c.dessin, index: None, meta: meta_c });
     }
+}
+
+fn prefixe_commun(a: &str, b: &str) -> usize {
+    a.chars().zip(b.chars()).take_while(|(x, y)| x.eq_ignore_ascii_case(y)).count()
 }
 
 fn nom_court(chemin: &str) -> &str {
@@ -460,7 +496,7 @@ fn nom_court(chemin: &str) -> &str {
 
 fn est_ignorable(bas: &str) -> bool {
     let ext = bas.rsplit('.').next().unwrap_or("");
-    matches!(ext, "png" | "jpg" | "jpeg" | "gif" | "bmp" | "pdf" | "doc" | "docx" | "xls" | "xlsx" | "html" | "htm" | "csv" | "md" | "json" | "xml" | "zip" | "rar" | "7z" | "exe" | "dll" | "step" | "stp" | "wrl" | "kicad_pcb" | "kicad_sch" | "kicad_pro" | "sch" | "brd" | "pcbdoc" | "schdoc" | "sum" | "lck")
+    matches!(ext, "png" | "jpg" | "jpeg" | "gif" | "bmp" | "pdf" | "doc" | "docx" | "xls" | "xlsx" | "html" | "htm" | "csv" | "md" | "json" | "zip" | "rar" | "7z" | "exe" | "dll" | "step" | "stp" | "wrl" | "kicad_pcb" | "kicad_sch" | "kicad_pro" | "sch" | "brd" | "pcbdoc" | "schdoc" | "sum" | "lck")
         || bas.starts_with('.')
         || bas == "readme.txt"
         || bas == "readme"

@@ -252,3 +252,126 @@ fn tous_les_exemples() {
     }
     assert!(erreurs.is_empty(), "Jeux sans couche ou couches vides : {erreurs:?}");
 }
+
+/// Fichiers IPC-2581 (cas de test du consortium, exports KiCad et Altium) : lecture, résumé, rendu de contrôle.
+#[test]
+fn ipc2581() {
+    let dossier = exemples().join("ipc2581");
+    if !dossier.exists() {
+        eprintln!("Exemples IPC-2581 absents : lancez node scripts/telecharger-exemples.mjs");
+        return;
+    }
+    let mut chemins: Vec<PathBuf> = Vec::new();
+    fn parcourir(d: &Path, sortie: &mut Vec<PathBuf>) {
+        for e in std::fs::read_dir(d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                parcourir(&p, sortie);
+            } else if p.extension().map(|x| x == "xml" || x == "cvg" || x == "zip").unwrap_or(false) {
+                sortie.push(p);
+            }
+        }
+    }
+    parcourir(&dossier, &mut chemins);
+    chemins.sort();
+    let sortie = racine().join("essais/ipc2581");
+    std::fs::create_dir_all(&sortie).unwrap();
+    let mut erreurs = Vec::new();
+    for chemin in chemins {
+        let nom = chemin.file_name().unwrap().to_string_lossy().to_string();
+        let debut = Instant::now();
+        let mut lot = Lot { fichiers: vec![Fichier { chemin: nom.clone(), octets: std::fs::read(&chemin).unwrap() }], ..Default::default() };
+        let r = analyser(&mut lot);
+        let duree = debut.elapsed().as_millis();
+        let couches = r["couches"].as_array().cloned().unwrap_or_default();
+        let comp = r["meta"]["composants"].as_array().map(|a| a.len()).unwrap_or(0);
+        let nets = r["meta"]["nets"].as_array().map(|a| a.len()).unwrap_or(0);
+        let objets: u64 = couches.iter().map(|c| c["objets"].as_u64().unwrap_or(0)).sum();
+        println!("{nom:45} {:3} couches, {objets:7} objets, {comp:4} composants, {nets:4} nets, {duree:5} ms", couches.len());
+        for a in r["alertes"].as_array().into_iter().flatten().chain(r["meta"]["odb"]["alertes"].as_array().into_iter().flatten()) {
+            println!("      ⚠ {a}");
+        }
+        if nom.contains("Stack") || nom.contains("BOM") {
+            continue; // fichiers d'empilage ou de nomenclature seuls : pas de dessin attendu
+        }
+        if couches.is_empty() || objets == 0 {
+            erreurs.push(nom.clone());
+            continue;
+        }
+        let boite = r["meta"]["boite"].as_array().map(|a| a.iter().map(|v| v.as_f64().unwrap_or(0.0)).collect::<Vec<_>>()).unwrap_or_default();
+        if boite.len() == 4 && boite[2] > boite[0] {
+            let marge = (boite[2] - boite[0]).max(boite[3] - boite[1]) * 0.03;
+            let cadre = [boite[0] - marge, boite[1] - marge, boite[2] + marge, boite[3] + marge];
+            let l = 900usize;
+            let h = ((cadre[3] - cadre[1]) / (cadre[2] - cadre[0]) * l as f64).round().clamp(10.0, 2000.0) as usize;
+            if let Some(c) = lot.couches.iter().filter(|c| matches!(c.role.genre, typon_core::couches::Genre::Cuivre)).max_by_key(|c| c.dessin.elements.len()) {
+                let img = rendre(&c.dessin, l, h, cadre);
+                ecrire_png(&sortie.join(format!("{nom}.png")), &img, l, h);
+            }
+        }
+    }
+    assert!(erreurs.is_empty(), "Fichiers IPC-2581 sans dessin : {erreurs:?}");
+}
+
+/// Gerber RS-274D avec liste d'ouvertures séparée (roue Eagle en pouces, liste Protel en mils et zéros de fin omis) :
+/// même dessin que la version Gerber X2 de la carte d'exemple.
+#[test]
+fn rs274d_avec_liste_d_ouvertures() {
+    let reference = {
+        let mut lot = Lot { fichiers: vec![Fichier { chemin: "a.zip".into(), octets: std::fs::read(racine().join("public/exemples/typon-demo-revA.zip")).unwrap() }], ..Default::default() };
+        analyser(&mut lot);
+        let c = lot.couches.iter().find(|c| c.nom == "Cuivre dessus").unwrap();
+        (c.dessin.boite(), c.dessin.objets.len())
+    };
+    for nom in ["rs274d-eagle.zip", "rs274d-protel.zip"] {
+        let octets = std::fs::read(racine().join("core/tests/donnees").join(nom)).unwrap();
+        let mut lot = Lot { fichiers: vec![Fichier { chemin: nom.into(), octets }], ..Default::default() };
+        let r = analyser(&mut lot);
+        let couches = r["couches"].as_array().unwrap();
+        let cuivre = couches.iter().find(|c| c["nom"] == "Cuivre dessus").unwrap_or_else(|| panic!("{nom} : pas de cuivre dessus : {r}"));
+        assert_eq!(cuivre["meta"]["format"], "Gerber RS-274D", "{nom}");
+        let alerte = cuivre["meta"]["alertes"][0].as_str().unwrap_or("");
+        assert!(alerte.contains("typon-demo."), "{nom} : {alerte}");
+        let c = lot.couches.iter().find(|c| c.nom == "Cuivre dessus").unwrap();
+        let b = c.dessin.boite();
+        let ecart = (b.x0 - reference.0.x0).abs().max((b.x1 - reference.0.x1).abs()).max((b.y0 - reference.0.y0).abs()).max((b.y1 - reference.0.y1).abs());
+        println!("{nom} : {} objets (X2 : {}), écart de la boîte {ecart:.4} mm ; {alerte}", c.dessin.objets.len(), reference.1);
+        assert!(ecart < 0.02, "{nom} : boîte {:?} au lieu de {:?}", b, reference.0);
+        assert_eq!(c.dessin.objets.len(), reference.1, "{nom} : nombre d'objets");
+        assert!(couches.iter().any(|c| c["nom"] == "Sérigraphie dessus"), "{nom} : sérigraphie");
+    }
+}
+
+#[test]
+fn listes_d_ouvertures() {
+    use typon_core::ouvertures::{Forme, lire};
+    let generique = "D-code  Forme      Dimensions\nD10     CIRCLE     10 mil\nD11     RECT       60x40 mil\nD12     OBLONG     50 x 80 mil\nD13     DONUT      60 30 mil\n";
+    let l = lire(generique).unwrap();
+    assert_eq!(l.unite, "mils");
+    assert_eq!(l.ouvertures.len(), 4);
+    assert_eq!(l.ouvertures[&11].forme, Forme::Rectangle);
+    assert!((l.ouvertures[&11].a - 1.524).abs() < 1e-9 && (l.ouvertures[&11].b - 1.016).abs() < 1e-9);
+    assert_eq!(l.ouvertures[&13].forme, Forme::Anneau);
+    let ad = "%MOMM*%\n%ADD10C,0.25*%\n%ADD11R,1.2X0.6*%\n";
+    let l = lire(ad).unwrap();
+    assert_eq!(l.unite, "mm");
+    assert!((l.ouvertures[&11].a - 1.2).abs() < 1e-9);
+}
+
+#[test]
+fn code_barres_odb() {
+    // Code 39 de « TD-0001 » avec clé : 10 caractères de 15 modules et 9 espaces, clé « - » (somme 79 mod 43 = 36).
+    let m = typon_core::odb::code39("TD-0001", false, true);
+    assert_eq!(m.len(), 159);
+    let m2 = typon_core::odb::code39("TD-0001-", false, false);
+    assert_eq!(m, m2, "la clé de contrôle de TD-0001 est « - »");
+    // Le code-barres de la carte d'exemple ODB++ est dessiné dans la sérigraphie du dessus.
+    let octets = std::fs::read(racine().join("public/exemples/typon-demo-revA-odb.tgz")).unwrap();
+    let mut lot = Lot { fichiers: vec![Fichier { chemin: "odb.tgz".into(), octets }], ..Default::default() };
+    analyser(&mut lot);
+    let c = lot.couches.iter().find(|c| c.nom == "Sérigraphie dessus").unwrap();
+    let info = c.dessin.infos.iter().find(|i| i.iter().any(|(k, _)| k == "Code-barres")).expect("objet code-barres");
+    println!("{info:?}");
+    let barres = c.dessin.elements.iter().filter(|e| matches!(e.prim, typon_core::geom::Prim::Boite { .. })).count();
+    assert!(barres >= 50, "{barres} barres");
+}

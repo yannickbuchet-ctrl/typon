@@ -124,10 +124,11 @@ export function resume(doc: DocumentTypon, unite: Unite): HTMLElement {
     }
   }
   if (d.meta.odb) {
-    racine.append(section("Fichier ODB++", definitions(d.meta.odb.info)));
-    racine.append(section(`Matrice des couches (étape « ${d.meta.odb.etape} »)`, tableau(d.meta.odb.empilage, [
+    const source = d.meta.odb.source ?? "ODB++";
+    racine.append(section(`Fichier ${source}`, definitions(d.meta.odb.info)));
+    racine.append(section(source === "ODB++" ? `Matrice des couches (étape « ${d.meta.odb.etape} »)` : `Couches (étape « ${d.meta.odb.etape} »)`, tableau(d.meta.odb.empilage, [
       { titre: "Couche", valeur: (l) => l.nom },
-      { titre: "Type ODB++", valeur: (l) => l.type },
+      { titre: source === "ODB++" ? "Type ODB++" : "Fonction", valeur: (l) => l.type },
       { titre: "Rôle", valeur: (l) => l.role },
       { titre: "De → à", valeur: (l) => (l.debut ? `${l.debut} → ${l.fin}` : "") },
       { titre: "Éléments", valeur: (l) => l.elements, nombre: true },
@@ -135,6 +136,13 @@ export function resume(doc: DocumentTypon, unite: Unite): HTMLElement {
     if (d.meta.odb.etapes.length > 1) racine.append(section("Étapes", el("p", { text: d.meta.odb.etapes.join(", ") })));
   }
   if (d.meta.netlist) racine.append(section("Netlist IPC-D-356", definitions([["Fichier", d.meta.netlist.fichier], ["Nets", d.meta.netlist.nets]])));
+  if (d.meta.listesOuvertures?.length) {
+    racine.append(section("Listes d'ouvertures (Gerber RS-274D)", tableau(d.meta.listesOuvertures, [
+      { titre: "Fichier", valeur: (l) => l.fichier },
+      { titre: "Ouvertures", valeur: (l) => l.ouvertures, nombre: true },
+      { titre: "Unité", valeur: (l) => l.unite },
+    ], { filtre: false })));
+  }
   const alertes = [...d.alertes, ...(d.meta.odb?.alertes ?? [])];
   if (alertes.length) racine.append(section("Remarques", el("ul", { class: "alertes" }, ...alertes.map((a) => el("li", { html: icone("alerte", 14) }, el("span", { text: a }))))));
   if (d.ignores.length) racine.append(section("Fichiers non lus", el("p", { class: "discret", text: `Ces fichiers ne sont ni des Gerber, ni des perçages, ni de l'ODB++ : ${d.ignores.join(", ")}.` })));
@@ -156,8 +164,8 @@ export function detailsCouche(c: DescriptionCouche, unite: Unite): HTMLElement {
     ["Nets", m.nets || null],
     ["Composants", m.composants || null],
     ["Trous", m.trous ?? null],
-    ["Type ODB++", m.typeOdb],
-    ["Nom ODB++", m.nomOdb],
+    [m.format === "IPC-2581" ? "Fonction IPC-2581" : "Type ODB++", m.typeOdb],
+    [m.format === "IPC-2581" ? "Nom IPC-2581" : "Nom ODB++", m.nomOdb],
   ]));
   if (m.attributs?.length) racine.append(el("h4", { text: "Attributs du fichier (X2)" }), definitions(m.attributs));
   if (m.outils?.length) {

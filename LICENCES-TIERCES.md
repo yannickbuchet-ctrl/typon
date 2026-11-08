@@ -10,6 +10,7 @@ compatibles avec la licence MIT.
 | [serde](https://serde.rs/), [serde_json](https://github.com/serde-rs/json) | Description des fichiers en JSON pour la page | MIT ou Apache 2.0 |
 | [miniz_oxide](https://github.com/Frommi/miniz_oxide) et adler2 | Décompression « deflate » (ZIP, gzip) | MIT, Zlib ou Apache 2.0 |
 | [earcutr](https://github.com/frewsxcv/earcutr) | Triangulation des polygones | ISC |
+| [roxmltree](https://github.com/RazrFalcon/roxmltree) | Lecture des fichiers IPC-2581 (XML) | MIT ou Apache 2.0 |
 | [i_overlay](https://github.com/iShape-Rust/iOverlay), i_float, i_shape, i_tree, i_key_sort | Opérations booléennes sur les polygones (trous des macros d'ouverture) | MIT (i_overlay : MIT ou Apache 2.0) |
 | num-traits, itertools, either, libm, itoa, memchr, zmij | Dépendances des précédents | MIT, Apache 2.0 ou Unlicense |
 
