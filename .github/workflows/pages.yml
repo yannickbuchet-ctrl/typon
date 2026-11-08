@@ -1,0 +1,51 @@
+# Teste, construit et publie Typon sur GitHub Pages. Lancement manuel seulement (onglet Actions → Run workflow), pour
+# que la mise en ligne reste une décision. Prérequis : Settings → Pages → Source : « GitHub Actions ».
+name: Publier sur GitHub Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  construire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Moteur : cartes d'exemple du site (les fichiers de test externes ne sont pas dans le dépôt).
+      - name: Essais du moteur
+        working-directory: core
+        run: cargo test --release --test exemples exemples_du_site
+      - name: Construire
+        run: npm run build
+        env:
+          # Le site est servi depuis https://<compte>.github.io/<dépôt>/
+          BASE: /${{ github.event.repository.name }}/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  publier:
+    needs: construire
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.publication.outputs.page_url }}
+    steps:
+      - id: publication
+        uses: actions/deploy-pages@v4

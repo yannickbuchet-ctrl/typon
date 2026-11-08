@@ -57,8 +57,8 @@ fn ecrire_png(chemin: &Path, img: &[bool], largeur: usize, hauteur: usize) {
 }
 
 /// Image de référence : vrai là où elle est orange.
-fn lire_reference(chemin: &Path) -> (Vec<bool>, usize, usize) {
-    let decodeur = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(chemin).unwrap()));
+fn lire_reference(octets: &[u8]) -> (Vec<bool>, usize, usize) {
+    let decodeur = png::Decoder::new(std::io::Cursor::new(octets.to_vec()));
     let mut lecteur = decodeur.read_info().unwrap();
     let mut buf = vec![0; lecteur.output_buffer_size().unwrap()];
     let info = lecteur.next_frame(&mut buf).unwrap();
@@ -88,28 +88,25 @@ fn boite_pixels(img: &[bool], l: usize, h: usize) -> Option<(usize, usize, usize
 
 #[test]
 fn fichiers_de_test_ucamco() {
-    let dossier = exemples().join("ucamco/gerber-layer-format-test-files");
-    let Some(dossier) = std::fs::read_dir(&dossier).ok().and_then(|mut d| d.next()).and_then(|e| e.ok()).map(|e| e.path()) else {
-        eprintln!("Fichiers de test Ucamco absents : lancez scripts/telecharger-exemples.mjs");
+    let zip = exemples().join("ucamco/gerber-layer-format-test-files.zip");
+    let Ok(octets) = std::fs::read(&zip) else {
+        eprintln!("Fichiers de test Ucamco absents : lancez node scripts/telecharger-exemples.mjs");
         return;
     };
+    let fichiers = typon_core::archive::developper("tests.zip", octets).unwrap();
     let sortie = racine().join("essais/ucamco");
     std::fs::create_dir_all(&sortie).unwrap();
     let mut echecs = Vec::new();
-    for entree in std::fs::read_dir(&dossier).unwrap() {
-        let chemin = entree.unwrap().path();
-        if chemin.extension().map(|e| e != "gbr").unwrap_or(true) {
-            continue;
-        }
-        let reference = chemin.with_extension("png");
-        let texte = std::fs::read_to_string(&chemin).unwrap();
+    for f in fichiers.iter().filter(|f| f.chemin.ends_with(".gbr")) {
+        let texte = String::from_utf8_lossy(&f.octets);
         let g = gerber::lire(&texte);
-        let nom = chemin.file_name().unwrap().to_string_lossy().to_string();
-        if !reference.exists() {
+        let nom = f.chemin.rsplit('/').next().unwrap().to_string();
+        let png_attendu = f.chemin.replace(".gbr", ".png");
+        let Some(reference) = fichiers.iter().find(|x| x.chemin == png_attendu) else {
             println!("{nom:45} {} objets, sans image de référence", g.dessin.objets.len());
             continue;
-        }
-        let (refimg, l, h) = lire_reference(&reference);
+        };
+        let (refimg, l, h) = lire_reference(&reference.octets);
         let Some((rx0, ry0, rx1, ry1)) = boite_pixels(&refimg, l, h) else { continue };
         // Le cadre en mm qui fait coïncider la boîte du dessin avec la boîte orange de la référence.
         let b = g.dessin.boite();
@@ -158,6 +155,24 @@ fn lire_dossier(d: &Path, base: &Path, sortie: &mut Vec<Fichier>) {
         } else {
             sortie.push(Fichier { chemin: p.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/"), octets: std::fs::read(&p).unwrap() });
         }
+    }
+}
+
+/// Cartes d'exemple du site (générées par scripts/generer_exemples.py) : toujours présentes, essai indispensable.
+#[test]
+fn exemples_du_site() {
+    let dossier = racine().join("public/exemples");
+    for (nom, couches_min, composants) in [("typon-demo-revA.zip", 13, 11), ("typon-demo-revB.zip", 13, 11), ("typon-demo-revA-odb.tgz", 12, 11)] {
+        let octets = std::fs::read(dossier.join(nom)).expect("exemple absent : lancez python scripts/generer_exemples.py");
+        let mut lot = Lot { fichiers: vec![Fichier { chemin: nom.into(), octets }], ..Default::default() };
+        let r = analyser(&mut lot);
+        let n = r["couches"].as_array().map(|a| a.len()).unwrap_or(0);
+        assert!(n >= couches_min, "{nom} : {n} couches");
+        assert_eq!(r["meta"]["composants"].as_array().map(|a| a.len()).unwrap_or(0), composants, "{nom} : composants");
+        let b = r["meta"]["boite"].as_array().unwrap();
+        let (l, h) = (b[2].as_f64().unwrap() - b[0].as_f64().unwrap(), b[3].as_f64().unwrap() - b[1].as_f64().unwrap());
+        assert!((l - 64.0).abs() < 0.01 && (h - 42.0).abs() < 0.01, "{nom} : dimensions {l} × {h}");
+        assert!(r["alertes"].as_array().map(|a| a.is_empty()).unwrap_or(true), "{nom} : alertes {}", r["alertes"]);
     }
 }
 
