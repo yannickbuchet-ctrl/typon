@@ -1,0 +1,13 @@
+# Dépendances, constructions
+node_modules/
+dist/
+target/
+src/wasm/
+*.log
+
+# Exemples externes : téléchargés par scripts/telecharger-exemples.mjs, jamais dans le dépôt (droits de leurs auteurs).
+exemples-externes/*
+!exemples-externes/SOURCES.md
+
+# Résultats des essais
+essais/

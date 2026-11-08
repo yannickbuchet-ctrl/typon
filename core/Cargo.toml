@@ -1,0 +1,26 @@
+[package]
+name = "typon-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Moteur de Typon : lecture des Gerber (RS-274X, X2, X3), perçages Excellon et XNC, fichiers de job, ODB++ ; géométrie prête pour WebGL."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+miniz_oxide = "0.8"
+earcutr = "0.4"
+i_overlay = "9.1.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[dev-dependencies]
+png = "0.18.1"
