@@ -216,7 +216,6 @@ export class App {
       return;
     }
     if (!this.zoneVue.contains(this.vue().racine)) this.zoneVue.replaceChildren(this.vue().racine, this.hud);
-    this.vue().fond = this.racine.dataset.theme === "clair" ? [0.94, 0.95, 0.96] : [0.04, 0.055, 0.075];
     this.afficherPanneauGauche();
     this.afficherPanneauDroit();
     this.chargerVisibles();
@@ -295,10 +294,8 @@ export class App {
     } catch {
       /* stockage indisponible */
     }
-    if (this.visionneuse) {
-      this.visionneuse.fond = t === "clair" ? [0.94, 0.95, 0.96] : [0.04, 0.055, 0.075];
-      this.visionneuse.redessiner();
-    }
+    // La carte garde un fond sombre dans les deux thèmes (la sérigraphie est blanche) : seul l'habillage change.
+    this.visionneuse?.redessiner();
     this.afficherBarre();
   }
 
@@ -578,7 +575,7 @@ export class App {
     const w = pas * facteur * v.vue.echelle;
     const x = v.canvas.width - w - 20 * r;
     const y = v.canvas.height - 22 * r;
-    ctx.strokeStyle = this.racine.dataset.theme === "clair" ? "rgba(20,30,45,0.7)" : "rgba(230,236,245,0.75)";
+    ctx.strokeStyle = "rgba(230,236,245,0.75)";
     ctx.fillStyle = ctx.strokeStyle;
     ctx.lineWidth = 2 * r;
     ctx.beginPath();
