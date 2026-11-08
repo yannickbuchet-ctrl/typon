@@ -57,11 +57,42 @@ pub fn lire(texte: &str) -> Result<Job, String> {
 
 fn aplatir(v: &Value, prefixe: &str, sortie: &mut Vec<(String, String)>, texte_de: &dyn Fn(&Value) -> String) {
     match v {
+        Value::Array(a) if a.iter().all(|x| x.is_object()) => {
+            // Liste d'objets (règles de conception par groupe de couches) : un préfixe par élément.
+            for (i, x) in a.iter().enumerate() {
+                let nom = x.get("Layers").and_then(|l| l.as_str()).map(|l| match l {
+                    "Outer" => "Couches externes".to_string(),
+                    "Inner" => "Couches internes".to_string(),
+                    "All" => "Toutes les couches".to_string(),
+                    autre => autre.to_string(),
+                }).unwrap_or_else(|| format!("{}", i + 1));
+                let p = if prefixe.is_empty() { nom } else { format!("{prefixe} · {nom}") };
+                if let Value::Object(o) = x {
+                    for (k, y) in o {
+                        if k == "Layers" {
+                            continue;
+                        }
+                        let v = match y {
+                            Value::Number(n) => format!("{} mm", n.to_string().replace('.', ",")),
+                            autre => texte_de(autre),
+                        };
+                        sortie.push((format!("{p} · {k}"), v));
+                    }
+                }
+            }
+        }
         Value::Object(o) => {
             for (k, x) in o {
                 let nom = if prefixe.is_empty() { k.clone() } else { format!("{prefixe} · {k}") };
                 match x {
                     Value::Object(_) => aplatir(x, &nom, sortie, texte_de),
+                    Value::Array(a) if a.iter().all(|y| y.is_object()) && !a.is_empty() => aplatir(x, &nom, sortie, texte_de),
+                    Value::String(s) if k == "CreationDate" && s.len() >= 16 && s.as_bytes()[4] == b'-' => {
+                        sortie.push((nom, format!("{}/{}/{} {}", &s[8..10], &s[5..7], &s[0..4], &s[11..16])))
+                    }
+                    Value::Number(n) if k.contains("Width") || k.contains("To") || k == "BoardThickness" || k == "X" || k == "Y" => {
+                        sortie.push((nom, format!("{} mm", n.to_string().replace('.', ","))))
+                    }
                     _ => sortie.push((nom, texte_de(x))),
                 }
             }
@@ -82,11 +113,11 @@ fn libelle(k: &str) -> String {
             "Name" => "Nom".into(),
             "GUID" => "Identifiant".into(),
             "Revision" => "Révision".into(),
-            "Size" => "Taille (mm)".into(),
+            "Size" => "Taille".into(),
             "X" => "largeur".into(),
             "Y" => "hauteur".into(),
             "LayerNumber" => "Nombre de couches".into(),
-            "BoardThickness" => "Épaisseur (mm)".into(),
+            "BoardThickness" => "Épaisseur".into(),
             "Finish" => "Finition".into(),
             "ImpedanceControlled" => "Impédance contrôlée".into(),
             "Legend" => "Sérigraphie".into(),

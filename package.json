@@ -1,0 +1,26 @@
+{
+  "name": "typon",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Typon : visionneuse et comparateur de Gerber, perçages et ODB++, entièrement dans le navigateur (moteur Rust en WebAssembly).",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "wasm": "node scripts/construire-wasm.mjs",
+    "dev": "npm run wasm && vite",
+    "build": "npm run wasm && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "playwright": "^1.65.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "pdf-lib": "^1.17.1"
+  }
+}

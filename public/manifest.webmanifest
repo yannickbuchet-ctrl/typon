@@ -1,0 +1,12 @@
+{
+  "name": "Typon — Gerber et ODB++",
+  "short_name": "Typon",
+  "description": "Visionneuse et comparateur de Gerber, perçages et ODB++, dans le navigateur.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1017",
+  "theme_color": "#0b1017",
+  "icons": [{ "src": "icone.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
