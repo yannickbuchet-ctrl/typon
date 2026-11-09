@@ -84,14 +84,16 @@ export class App {
     return new Promise((ok) => {
       const champ = el("input", { type: "file", multiple: true, style: { display: "none" } });
       if (dossier) champ.setAttribute("webkitdirectory", "");
-      champ.addEventListener("change", () => {
-        ok([...(champ.files ?? [])]);
+      let fini = false;
+      const finir = (fichiers: File[]) => {
+        if (fini) return;
+        fini = true;
+        ok(fichiers);
         champ.remove();
-      });
-      champ.addEventListener("cancel", () => {
-        ok([]);
-        champ.remove();
-      });
+      };
+      champ.addEventListener("change", () => finir([...(champ.files ?? [])]));
+      // Firefox peut annoncer « cancel » juste avant « change » : on attend un instant avant de conclure à l'abandon.
+      champ.addEventListener("cancel", () => setTimeout(() => finir([...(champ.files ?? [])]), 400));
       document.body.append(champ);
       champ.click();
     });
