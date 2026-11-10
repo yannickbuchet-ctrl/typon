@@ -194,7 +194,10 @@ export class Visionneuse {
         return;
       }
       const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-      this.zoomer(Math.exp(-d * (e.ctrlKey ? 0.01 : 0.0018)), p.x, p.y);
+      // Pincement d'un pavé tactile : petites valeurs avec Ctrl, zoom fin ; cran de molette (avec ou sans Ctrl) : ×1,2
+      // environ par cran. En côte à côte, les deux panneaux partagent la même vue : ils restent synchronisés.
+      const pincement = e.ctrlKey && Math.abs(d) < 40;
+      this.zoomer(Math.exp(-d * (pincement ? 0.01 : 0.0018)), p.x, p.y);
     }, { passive: false });
     c.addEventListener("pointerdown", (e) => {
       c.setPointerCapture(e.pointerId);
