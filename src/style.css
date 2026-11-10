@@ -211,7 +211,7 @@ tr.cliquable:hover td { background: color-mix(in srgb, var(--accent) 8%, transpa
   var(--fond); }
 .accueil::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(var(--bord-doux) 1px, transparent 1px), linear-gradient(90deg, var(--bord-doux) 1px, transparent 1px); background-size: 32px 32px; mask-image: radial-gradient(ellipse at 50% 30%, black, transparent 70%); opacity: 0.6; pointer-events: none; }
 .accueil-contenu { position: relative; max-width: 1040px; margin: 0 auto; padding: 56px 24px 48px; }
-.accueil h1 { font-size: clamp(2rem, 4.2vw, 3.3rem); line-height: 1.08; letter-spacing: -0.035em; margin: 0 0 14px; font-weight: 780; }
+.accueil h1 { font-size: clamp(1.6rem, 3vw, 2.5rem); line-height: 1.12; letter-spacing: -0.035em; margin: 0 0 14px; font-weight: 780; }
 .degrade { background: var(--degrade); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .sous-titre { font-size: 1.12rem; color: var(--texte-2); max-width: 46em; margin: 0 0 30px; line-height: 1.55; }
 .depot { border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, var(--bord)); border-radius: 18px; padding: 34px 24px; text-align: center; background: color-mix(in srgb, var(--panneau) 82%, transparent); backdrop-filter: blur(6px); cursor: pointer; transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s; box-shadow: var(--ombre); }
