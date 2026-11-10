@@ -2,6 +2,7 @@
  * Un jeu de fichiers ouvert (Gerber, perçages, ODB++…) : sa description par le moteur et l'état d'affichage de chaque
  * couche (visibilité, couleur, opacité, géométrie envoyée à la carte graphique).
  */
+import { t } from "../i18n";
 import { moteur, type Description, type DescriptionCouche, type Genre } from "../moteur/client";
 import type { CoucheGpu, Rendu } from "../rendu/rendu";
 
@@ -101,5 +102,5 @@ function nomDuJeu(fichiers: File[]): string {
   let p = noms[0] ?? "";
   for (const n of noms) while (p && !n.startsWith(p)) p = p.slice(0, -1);
   p = p.replace(/[-_. ]+$/, "");
-  return p.length >= 3 ? p : `${fichiers.length} fichiers`;
+  return p.length >= 3 ? p : t("compte.fichiers", { n: fichiers.length });
 }

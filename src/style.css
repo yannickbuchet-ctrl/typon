@@ -253,6 +253,6 @@ body.depot-actif::after { content: "Déposez pour ouvrir"; position: fixed; inse
 .liste-composants button:hover:not(:disabled) { background: var(--panneau-2); border-color: var(--bord-doux); }
 .liste-composants button:disabled { cursor: default; }
 .composants-differences { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--bord-doux); }
-.app.en-comparaison .barre .segment[aria-label="Côté vu"] .bouton span { display: none; }
+.app.en-comparaison .barre .segment.cote-vu .bouton span { display: none; }
 :root[data-theme="clair"] .zone-vue { background: #0a0e14; }
 :root[data-theme="clair"] .hud, :root[data-theme="clair"] .etiquette-panneau span { color: #c9d4e3; background: rgba(18, 26, 37, 0.85); border-color: #223044; }
