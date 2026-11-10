@@ -17,6 +17,7 @@ interface Exports {
   couche_geometrie(lot: number, couche: number): number;
   objet_sous(lot: number, couche: number, x: number, y: number, tol: number): number;
   zones_difference(masque: number, largeur: number, hauteur: number, fusion: number, minimum: number): number;
+  modele_3d(lot: number): number;
 }
 
 let moteur: Promise<Exports> | null = null;
@@ -57,6 +58,7 @@ type Demande =
   | { op: "geometrie"; lot: number; couche: number }
   | { op: "objet"; lot: number; couche: number; x: number; y: number; tol: number }
   | { op: "zones"; masque: ArrayBuffer; largeur: number; hauteur: number; fusion: number; minimum: number }
+  | { op: "modele3d"; lot: number }
   | { op: "fermer"; lot: number };
 
 self.onmessage = async (e: MessageEvent<{ id: number } & Demande>) => {
@@ -92,6 +94,12 @@ self.onmessage = async (e: MessageEvent<{ id: number } & Demande>) => {
         const [p, n] = copier(m, new Uint8Array(d.masque));
         resultat = lire(m, m.zones_difference(p, d.largeur, d.hauteur, d.fusion, d.minimum)).json;
         m.dealloc(p, n);
+        break;
+      }
+      case "modele3d": {
+        const { json, donnees } = lire(m, m.modele_3d(d.lot));
+        resultat = { modele: json, donnees };
+        transferts.push(donnees);
         break;
       }
       case "fermer":

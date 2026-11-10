@@ -256,3 +256,13 @@ body.depot-actif::after { content: "Déposez pour ouvrir"; position: fixed; inse
 .app.en-comparaison .barre .segment[aria-label="Côté vu"] .bouton span { display: none; }
 :root[data-theme="clair"] .zone-vue { background: #0a0e14; }
 :root[data-theme="clair"] .hud, :root[data-theme="clair"] .etiquette-panneau span { color: #c9d4e3; background: rgba(18, 26, 37, 0.85); border-color: #223044; }
+
+/* Vue 3D */
+.vue-3d { cursor: grab; }
+.vue-3d:active { cursor: grabbing; }
+.bulle-3d { position: absolute; z-index: 3; display: flex; flex-direction: column; gap: 2px; max-width: 280px; padding: 8px 11px; border-radius: 10px; background: rgba(12, 17, 25, 0.92); border: 1px solid rgba(255, 255, 255, 0.12); color: #e8edf4; font-size: 12.5px; pointer-events: none; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.bulle-3d[hidden] { display: none; }
+.bulle-3d strong { font-size: 13.5px; color: #ffb347; }
+.legende-3d { position: absolute; left: 12px; bottom: 10px; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px 14px; max-width: calc(100% - 24px); font-size: 12px; color: rgba(232, 237, 244, 0.78); pointer-events: none; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
+.legende-3d .aide { opacity: 0.75; }
+@media (max-width: 700px) { .legende-3d .aide { display: none; } }

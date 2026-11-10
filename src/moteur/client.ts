@@ -52,6 +52,10 @@ export interface Composant {
   x?: number;
   y?: number;
   broches?: number;
+  /** Encombrement du boîtier dans son repère (x0, y0, x1, y1, mm). */
+  corps?: [number, number, number, number] | null;
+  /** Hauteur (mm), si le fichier la donne. */
+  hauteur?: number | null;
   proprietes: [string, string][];
 }
 
@@ -60,6 +64,8 @@ export interface Description {
   meta: {
     boite: [number, number, number, number];
     couchesCuivre: number;
+    epaisseur?: { valeur: number; source: string };
+    finition?: string;
     job?: { fichier: string; rubriques: { titre: string; lignes: [string, string][] }[]; empilage: { nom: string; type: string; epaisseur: number | null; materiau: string }[] };
     odb?: {
       /** « ODB++ » ou « IPC-2581 » : les deux formats sont présentés de la même façon. */
@@ -108,6 +114,13 @@ export interface Zone {
   y1: number;
   a: number;
   b: number;
+}
+
+export interface Modele3d {
+  anneaux: [number, number][][];
+  /** « contour » (tracé de la carte) ou « rectangle » (pas de contour fermé : rectangle englobant). */
+  source: "contour" | "rectangle";
+  triangles: Float32Array;
 }
 
 class Moteur {
@@ -160,6 +173,12 @@ class Moteur {
   zones(masque: Uint8Array, largeur: number, hauteur: number, fusion: number, minimum: number): Promise<Zone[]> {
     const copie = masque.slice().buffer;
     return this.appel({ op: "zones", masque: copie, largeur, hauteur, fusion, minimum }, [copie]);
+  }
+
+  /** Contour de la carte pour la vue 3D : anneaux (bord puis découpes) et triangles de la face (x, y). */
+  async modele3d(lot: number): Promise<Modele3d> {
+    const r = await this.appel<{ modele: Omit<Modele3d, "triangles">; donnees: ArrayBuffer }>({ op: "modele3d", lot });
+    return { ...r.modele, triangles: new Float32Array(r.donnees) };
   }
 
   fermer(lot: number): Promise<void> {

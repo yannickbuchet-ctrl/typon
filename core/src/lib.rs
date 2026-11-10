@@ -17,7 +17,7 @@ pub mod zones;
 
 use archive::Fichier;
 use couches::{Genre, Role};
-use geom::{BBox, Dessin, Index};
+use geom::{BBox, Dessin, Index, Prim};
 use serde_json::{Value, json};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -171,6 +171,49 @@ pub extern "C" fn objet_sous(lot: u32, couche: u32, x: f64, y: f64, tol: f64) ->
     })
 }
 
+/// Contour de la carte pour la vue 3D : anneaux fermés (le plus grand est le bord, les autres des découpes) et
+/// triangulation de la face (x, y en f32). Sans contour fermé : le rectangle englobant les couches de cuivre.
+#[unsafe(no_mangle)]
+pub extern "C" fn modele_3d(lot: u32) -> *mut u8 {
+    LOTS.with(|l| {
+        let l = l.borrow();
+        let Some(lot) = l.get(&lot) else { return sortie(&json!({"erreur": "Lot inconnu."}), &[]) };
+        let mut anneaux: Vec<Vec<geom::Pt>> = Vec::new();
+        for c in lot.couches.iter().filter(|c| c.role.genre == Genre::Contour) {
+            anneaux.extend(geom::anneaux_contour(&c.dessin));
+            if !anneaux.is_empty() {
+                break;
+            }
+        }
+        let mut source = "contour";
+        if anneaux.is_empty() {
+            let mut b = BBox::vide();
+            for c in lot.couches.iter().filter(|c| c.role.genre == Genre::Cuivre) {
+                b.union(&c.dessin.boite());
+            }
+            if b.est_vide() {
+                for c in &lot.couches {
+                    b.union(&c.dessin.boite());
+                }
+            }
+            b.gonfle(1.0);
+            anneaux.push(vec![geom::pt(b.x0, b.y0), geom::pt(b.x1, b.y0), geom::pt(b.x1, b.y1), geom::pt(b.x0, b.y1)]);
+            source = "rectangle";
+        }
+        // Le bord : l'anneau de plus grande aire ; les découpes : les anneaux à l'intérieur du bord.
+        anneaux.sort_by(|a, b| geom::aire(b).abs().partial_cmp(&geom::aire(a).abs()).unwrap());
+        let bord = anneaux[0].clone();
+        let decoupes: Vec<Vec<geom::Pt>> = anneaux[1..].iter().filter(|a| geom::point_dans_anneau(a[0], &bord)).cloned().collect();
+        let mut tous = vec![bord];
+        tous.extend(decoupes);
+        let mut tris: Vec<f32> = Vec::new();
+        geom::trianguler(&tous, &mut tris);
+        let donnees: Vec<u8> = tris.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let anneaux_json: Vec<Value> = tous.iter().map(|a| json!(a.iter().map(|p| [p.x, p.y]).collect::<Vec<_>>())).collect();
+        sortie(&json!({"anneaux": anneaux_json, "source": source}), &donnees)
+    })
+}
+
 /// Zones de différence d'un masque de comparaison (voir zones.rs).
 ///
 /// # Safety
@@ -237,6 +280,12 @@ pub fn analyser(lot: &mut Lot) -> Value {
                 Ok(j) => {
                     for (chemin, fonction) in &j.fichiers {
                         roles_job.insert(nom_court(chemin).to_ascii_lowercase(), fonction.clone());
+                    }
+                    if let Some(e) = j.epaisseur {
+                        meta.insert("epaisseur".into(), json!({"valeur": e, "source": "fichier de job"}));
+                    }
+                    if let Some(f) = &j.finition {
+                        meta.insert("finition".into(), json!(f));
                     }
                     meta.insert("job".into(), json!({
                         "fichier": nom_court(&f.chemin),
@@ -336,8 +385,45 @@ pub fn analyser(lot: &mut Lot) -> Value {
             if role.genre == Genre::Autre && role.libelle == "Autre" {
                 role.libelle = nom.clone();
             }
+            // Gerber X3 : la position du composant est celle de son flash « ComponentMain ».
+            // Encombrement : axes du contour « ComponentOutline » (le corps « Body » de préférence).
+            let mut positions: HashMap<String, (f64, f64)> = HashMap::new();
+            let mut contours: HashMap<String, (u8, Vec<geom::Pt>)> = HashMap::new();
+            for e in &g.dessin.elements {
+                if let Some(info) = g.dessin.info_objet(e.objet) {
+                    let Some((_, r)) = info.iter().find(|(k, _)| k == "Composant") else { continue };
+                    let Some((_, f)) = info.iter().find(|(k, _)| k == "Fonction") else { continue };
+                    if f.starts_with("ComponentMain") {
+                        let b = e.prim.boite_englobante();
+                        positions.insert(r.clone(), ((b.x0 + b.x1) / 2.0, (b.y0 + b.y1) / 2.0));
+                    } else if f.starts_with("ComponentOutline") {
+                        let rang = if f.contains("Body") { 0 } else if f.contains("Lead2Lead") { 1 } else if f.contains("Footprint") { 2 } else { 3 };
+                        let points: Vec<geom::Pt> = match &e.prim {
+                            Prim::Cap { a, b, .. } => vec![*a, *b],
+                            autre => {
+                                let b = autre.boite_englobante();
+                                vec![geom::pt(b.x0, b.y0), geom::pt(b.x1, b.y1)]
+                            }
+                        };
+                        let c = contours.entry(r.clone()).or_insert((rang, Vec::new()));
+                        if rang < c.0 {
+                            *c = (rang, Vec::new());
+                        }
+                        if rang == c.0 {
+                            c.1.extend(points);
+                        }
+                    }
+                }
+            }
             for (r, a) in &g.composants {
                 let e = composants.entry(r.clone()).or_default();
+                if let Some((x, y)) = positions.get(r) {
+                    e.insert("__x".into(), x.to_string());
+                    e.insert("__y".into(), y.to_string());
+                }
+                if let Some((_, pts)) = contours.get(r) {
+                    e.insert("__contour".into(), pts.iter().map(|p| format!("{} {}", p.x, p.y)).collect::<Vec<_>>().join(";"));
+                }
                 for (k, v) in a {
                     e.insert(k.clone(), v.clone());
                 }
@@ -385,7 +471,30 @@ pub fn analyser(lot: &mut Lot) -> Value {
 
     if !composants.is_empty() && !meta.contains_key("composants") {
         let liste: Vec<Value> = composants.iter().map(|(r, a)| {
+            // Encombrement dans le repère du composant : contour ramené à sa position, rotation annulée, miroir au
+            // dessous (comme une empreinte ODB++).
+            let x = a.get("__x").and_then(|v| v.parse::<f64>().ok());
+            let y = a.get("__y").and_then(|v| v.parse::<f64>().ok());
+            let rot = a.get("rotation").and_then(|v| v.trim().parse::<f64>().ok()).unwrap_or(0.0).to_radians();
+            let dessous = a.get("Côté").map(|c| c == "dessous").unwrap_or(false);
+            let corps = match (x, y, a.get("__contour")) {
+                (Some(x), Some(y), Some(c)) => {
+                    let mut b = BBox::vide();
+                    for p in c.split(';') {
+                        let mut v = p.split(' ').filter_map(|n| n.parse::<f64>().ok());
+                        if let (Some(px), Some(py)) = (v.next(), v.next()) {
+                            let (dx, dy) = (px - x, py - y);
+                            let lx = dx * rot.cos() + dy * rot.sin();
+                            let ly = -dx * rot.sin() + dy * rot.cos();
+                            b.ajoute(geom::pt(if dessous { -lx } else { lx }, ly));
+                        }
+                    }
+                    (!b.est_vide() && b.x1 > b.x0 && b.y1 > b.y0).then(|| b.tableau())
+                }
+                _ => None,
+            };
             json!({
+                "corps": corps,
                 "reference": r,
                 "valeur": a.get("valeur").cloned().unwrap_or_default(),
                 "boitier": a.get("empreinte").or(a.get("boîtier")).cloned().unwrap_or_default(),
@@ -393,7 +502,10 @@ pub fn analyser(lot: &mut Lot) -> Value {
                 "fabricant": a.get("fabricant").cloned().unwrap_or_default(),
                 "rotation": a.get("rotation").cloned().unwrap_or_default(),
                 "cote": a.get("Côté").cloned().unwrap_or_default(),
-                "proprietes": a.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>(),
+                "x": a.get("__x").and_then(|v| v.parse::<f64>().ok()),
+                "y": a.get("__y").and_then(|v| v.parse::<f64>().ok()),
+                "hauteur": a.get("hauteur").and_then(|v| v.split(|c: char| !(c.is_ascii_digit() || c == '.')).next()).and_then(|v| v.parse::<f64>().ok()),
+                "proprietes": a.iter().filter(|(k, _)| !k.starts_with("__")).map(|(k, v)| json!([k, v])).collect::<Vec<_>>(),
             })
         }).collect();
         meta.insert("composants".into(), json!(liste));
@@ -459,7 +571,12 @@ fn ajouter_odb(o: odb::Odb, couches: &mut Vec<Couche>, meta: &mut serde_json::Ma
         "cote": if c.dessous { "dessous" } else { "dessus" },
         "broches": c.broches,
         "proprietes": c.proprietes,
+        "corps": c.corps,
+        "hauteur": c.hauteur,
     })).collect::<Vec<_>>()));
+    if let Some(e) = o.epaisseur {
+        meta.insert("epaisseur".into(), json!({"valeur": e, "source": o.format}));
+    }
     meta.insert("nomenclature".into(), json!(bom.iter().map(|((p, v), refs)| json!({"piece": p, "valeur": v, "quantite": refs.len(), "references": refs})).collect::<Vec<_>>()));
     meta.insert("nets".into(), json!(o.nets.iter().map(|(n, k)| json!({"nom": n, "elements": k})).collect::<Vec<_>>()));
     for mut c in o.couches {

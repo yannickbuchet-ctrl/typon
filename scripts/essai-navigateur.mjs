@@ -47,7 +47,7 @@ try {
   const page = await contexte.newPage();
   surveiller(page, "ordinateur");
   await page.goto(`http://localhost:${PORT}/`);
-  await page.getByText("Vos typons,").waitFor();
+  await page.getByText("Visionneuse et comparateur de fichiers de fabrication").waitFor();
   await page.waitForTimeout(500);
   await page.screenshot({ path: path.join(captures, "accueil.png") });
 
@@ -235,7 +235,7 @@ try {
   const tel = await mobile.newPage();
   surveiller(tel, "téléphone");
   await tel.goto(`http://localhost:${PORT}/`);
-  await tel.getByText("Vos typons,").waitFor();
+  await tel.getByText("Visionneuse et comparateur de fichiers de fabrication").waitFor();
   await tel.screenshot({ path: path.join(captures, "telephone-accueil.png") });
   await tel.getByRole("button", { name: /Carte d'exemple/ }).tap();
   await attendreEtat(tel, /couches lues/);

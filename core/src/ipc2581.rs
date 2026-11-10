@@ -664,7 +664,11 @@ pub fn lire(texte: &str) -> Result<Odb, String> {
 
     // Boîtiers et composants
     let mut boitiers: HashMap<String, Forme> = HashMap::new();
+    let mut hauteurs_boitiers: HashMap<String, f64> = HashMap::new();
     for pk in enfants(etape, "Package") {
+        if let Some(h) = pk.attribute("height").and_then(|v| v.parse::<f64>().ok()) {
+            hauteurs_boitiers.insert(pk.attribute("name").unwrap_or("").to_string(), h * k);
+        }
         let mut forme = Vec::new();
         if let Some(o) = enfant(pk, "Outline") {
             if let Some(pg) = enfant(o, "Polygon") {
@@ -743,7 +747,17 @@ pub fn lire(texte: &str) -> Result<Odb, String> {
             }
             _ => d.ajoute(Prim::Cap { a: pt(loc.0, loc.1), b: pt(loc.0, loc.1), r: 0.3 }, true, objet),
         }
+        let corps = boitiers.get(&boitier).and_then(|f| {
+            let mut bb = BBox::vide();
+            for (p, _) in f {
+                bb.union(&p.boite_englobante());
+            }
+            (!bb.est_vide()).then(|| bb.tableau())
+        });
+        let hauteur = c.attribute("height").and_then(|v| v.parse::<f64>().ok()).map(|h| h * k).or_else(|| hauteurs_boitiers.get(&boitier).copied()).filter(|h| *h > 0.0);
         composants.push(Composant {
+            corps,
+            hauteur,
             reference,
             boitier,
             piece: c.attribute("part").unwrap_or("").to_string(),
@@ -779,6 +793,7 @@ pub fn lire(texte: &str) -> Result<Odb, String> {
     if l.textes_ignores > 0 {
         l.alerte(format!("{} texte(s) IPC-2581 (élément Text) non dessiné(s).", l.textes_ignores));
     }
+    let mut epaisseur: Option<f64> = None;
     // Empilage (Stackup) : épaisseurs, dans l'ordre
     if let Some(st) = enfant(ecad, "CadData").and_then(|cd| enfant(cd, "Stackup")) {
         let mut couches_st: Vec<(i32, String, f64)> = Vec::new();
@@ -789,6 +804,7 @@ pub fn lire(texte: &str) -> Result<Odb, String> {
         }
         couches_st.sort_by_key(|c| c.0);
         let total: f64 = couches_st.iter().map(|c| c.2).sum();
+        epaisseur = st.attribute("overallThickness").and_then(|v| v.parse::<f64>().ok()).map(|t| t * k).or((total > 0.0).then_some(total)).filter(|e| *e > 0.05 && *e < 20.0);
         if total > 0.0 {
             info.push(("Épaisseur de l'empilage".into(), format!("{} mm", nombre(total))));
         }
@@ -807,6 +823,7 @@ pub fn lire(texte: &str) -> Result<Odb, String> {
         alertes: l.alertes,
         unite: if k == 25.4 { "INCH".into() } else { "MM".into() },
         format: "IPC-2581",
+        epaisseur,
     })
 }
 

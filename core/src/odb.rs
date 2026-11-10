@@ -43,6 +43,10 @@ pub struct Composant {
     pub dessous: bool,
     pub broches: usize,
     pub proprietes: Vec<(String, String)>,
+    /// Encombrement du boîtier dans son propre repère (x0, y0, x1, y1, mm), pour la vue 3D.
+    pub corps: Option<[f64; 4]>,
+    /// Hauteur du composant (mm), si le fichier la donne.
+    pub hauteur: Option<f64>,
 }
 
 pub struct Odb {
@@ -57,6 +61,8 @@ pub struct Odb {
     pub unite: String,
     /// « ODB++ » ou « IPC-2581 » (le lecteur IPC-2581 produit la même structure).
     pub format: &'static str,
+    /// Épaisseur de la carte (mm), si le fichier la donne.
+    pub epaisseur: Option<f64>,
 }
 
 /// Accès aux fichiers de l'archive, par chemin relatif à la racine du produit ODB++, sans tenir compte de la casse.
@@ -278,7 +284,26 @@ pub fn lire(fichiers: &[Fichier]) -> Result<Odb, String> {
     if police.is_none() {
         alertes.push("Police fonts/standard absente : les textes ne sont pas dessinés.".into());
     }
-    Ok(Odb { info, etape, etapes, couches: couches_odb, composants, nets, alertes, unite: unite_defaut, format: "ODB++" })
+    // Épaisseur : attribut .board_thickness du produit, sinon THICKNESS des outils de perçage.
+    let k_produit = if unite_defaut.eq_ignore_ascii_case("MM") { 1.0 } else { 25.4 };
+    let mut epaisseur = arbre.texte("misc/attrlist").and_then(|t| {
+        t.lines().find_map(|l| l.trim().strip_prefix(".board_thickness=").and_then(|v| v.trim().parse::<f64>().ok()))
+    }).map(|v| v * k_produit).filter(|v| *v > 0.05 && *v < 20.0);
+    if epaisseur.is_none() {
+        for c in couches_odb.iter().filter(|c| c.type_odb == "DRILL") {
+            if let Some(t) = arbre.texte(&format!("steps/{etape}/layers/{}/tools", c.nom)) {
+                let mm = t.lines().any(|l| l.trim().eq_ignore_ascii_case("UNITS=MM"));
+                if let Some(v) = t.lines().find_map(|l| l.trim().strip_prefix("THICKNESS=").and_then(|v| v.trim().parse::<f64>().ok())) {
+                    let e = v * if mm { 0.001 } else { 0.0254 };
+                    if e > 0.05 && e < 20.0 {
+                        epaisseur = Some(e);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    Ok(Odb { info, etape, etapes, couches: couches_odb, composants, nets, alertes, unite: unite_defaut, format: "ODB++", epaisseur })
 }
 
 fn libelle_info(k: &str) -> String {
@@ -1226,9 +1251,13 @@ fn lire_composants(t: &str, dessous: bool, boitiers: &[Boitier]) -> Vec<Composan
             let f = |i: usize| c.get(i).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
             let pkg = c.first().and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
             let mut proprietes = Vec::new();
+            let mut hauteur = None;
             for a in attrs.split(';').next().unwrap_or("").split(',') {
                 if let Some((n, v)) = a.split_once('=') {
                     if let Some(nom) = n.trim().parse::<usize>().ok().and_then(|i| attributs.get(&i)) {
+                        if nom == ".comp_height" {
+                            hauteur = v.trim().parse::<f64>().ok().map(|h| h * k).filter(|h| *h > 0.0);
+                        }
                         let v = if nom == ".comp_type2" || nom == ".package_type" || nom == ".comp_mount_type" {
                             v.parse::<usize>().ok().and_then(|i| textes.get(&i).cloned()).unwrap_or(v.to_string())
                         } else {
@@ -1249,6 +1278,14 @@ fn lire_composants(t: &str, dessous: bool, boitiers: &[Boitier]) -> Vec<Composan
                 dessous: dessous || c.get(4).map(|m| *m == "M").unwrap_or(false),
                 broches: 0,
                 proprietes,
+                corps: boitiers.get(pkg).and_then(|b| {
+                    let mut bb = BBox::vide();
+                    for p in if b.contour.is_empty() { &b.broches } else { &b.contour } {
+                        bb.union(&p.boite_englobante());
+                    }
+                    (!bb.est_vide()).then(|| bb.tableau())
+                }),
+                hauteur,
             });
         } else if let Some(x) = l.strip_prefix("PRP ") {
             if let Some(comp) = r.last_mut() {

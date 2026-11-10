@@ -338,6 +338,16 @@ impl Lecteur {
                 };
                 let brut = texte[i..fin].trim();
                 if let Some(t) = brut.strip_prefix("G04").or_else(|| brut.strip_prefix("G4 ")) {
+                    // Attribut en commentaire normalisé (« G04 #@! TO.C,R1* », spécification Gerber 4.1) : LibrePCB
+                    // et d'autres l'emploient pour rester lisibles par les anciens logiciels.
+                    if let Some(attr) = t.trim_start().strip_prefix("#@!") {
+                        let attr = attr.trim();
+                        if ["TF", "TA", "TO", "TD"].iter().any(|p| attr.starts_with(p)) {
+                            self.commande_etendue(attr);
+                            i = fin + 1;
+                            continue;
+                        }
+                    }
                     if !self.dessin_commence && self.res.commentaires.len() < 30 && !t.trim().is_empty() {
                         self.res.commentaires.push(t.trim().to_string());
                     }

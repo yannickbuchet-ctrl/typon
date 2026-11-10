@@ -639,3 +639,84 @@ pub fn forme_booleenne(prims: &[(Prim, bool)]) -> Vec<Prim> {
         .map(|forme| Prim::Poly { anneaux: forme.into_iter().map(|c| c.into_iter().map(|q| pt(q[0], q[1])).collect()).collect() })
         .collect()
 }
+
+/// Anneaux fermés d'un contour de carte (traits du contour, quel que soit leur ordre ou leur sens) : les segments sont
+/// enchaînés bout à bout, à 10 µm près. Les morceaux qui ne se referment pas sont ignorés.
+pub fn anneaux_contour(d: &Dessin) -> Vec<Vec<Pt>> {
+    let mut segments: Vec<(Pt, Pt)> = Vec::new();
+    for e in &d.elements {
+        match &e.prim {
+            Prim::Cap { a, b, .. } if a.dist(*b) > 1e-6 => segments.push((*a, *b)),
+            Prim::Poly { anneaux } => {
+                for an in anneaux {
+                    for i in 0..an.len() {
+                        let (p, q) = (an[i], an[(i + 1) % an.len()]);
+                        if p.dist(q) > 1e-6 {
+                            segments.push((p, q));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let tol = 0.01;
+    let cle = |p: Pt| ((p.x / tol).round() as i64, (p.y / tol).round() as i64);
+    let mut extremites: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+    for (i, (a, b)) in segments.iter().enumerate() {
+        extremites.entry(cle(*a)).or_default().push(i);
+        extremites.entry(cle(*b)).or_default().push(i);
+    }
+    let voisin = |p: Pt, utilise: &[bool], extremites: &HashMap<(i64, i64), Vec<usize>>| -> Option<usize> {
+        let (cx, cy) = cle(p);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                if let Some(v) = extremites.get(&(cx + dx, cy + dy)) {
+                    for &i in v {
+                        if !utilise[i] {
+                            let (a, b) = segments[i];
+                            if a.dist(p) <= tol * 1.5 || b.dist(p) <= tol * 1.5 {
+                                return Some(i);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    };
+    let mut utilise = vec![false; segments.len()];
+    let mut anneaux = Vec::new();
+    for depart in 0..segments.len() {
+        if utilise[depart] {
+            continue;
+        }
+        utilise[depart] = true;
+        let (a, b) = segments[depart];
+        let mut anneau = vec![a, b];
+        let mut fin = b;
+        while let Some(i) = voisin(fin, &utilise, &extremites) {
+            utilise[i] = true;
+            let (p, q) = segments[i];
+            fin = if p.dist(fin) <= q.dist(fin) { q } else { p };
+            anneau.push(fin);
+            if fin.dist(a) <= tol * 1.5 {
+                break;
+            }
+        }
+        if anneau.len() >= 4 && fin.dist(a) <= tol * 1.5 {
+            anneau.pop();
+            anneaux.push(anneau);
+        }
+    }
+    anneaux
+}
+
+pub fn aire(a: &[Pt]) -> f64 {
+    let mut s = 0.0;
+    for i in 0..a.len() {
+        let (p, q) = (a[i], a[(i + 1) % a.len()]);
+        s += p.x * q.y - q.x * p.y;
+    }
+    s / 2.0
+}

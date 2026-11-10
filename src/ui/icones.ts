@@ -29,6 +29,7 @@ const ICONES: Record<string, string> = {
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   gauche: '<path d="m15 6-6 6 6 6"/>',
   droite: '<path d="m9 6 6 6-6 6"/>',
+  cube: '<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>',
   carte: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="10" r="1.5"/><path d="M8 14h4l3-3h3"/>',
 };
 

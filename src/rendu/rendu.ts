@@ -448,6 +448,37 @@ export class Rendu {
   }
 
   /**
+   * Peint des couches (unies) dans un canal d'une texture RGBA déjà allouée (vue 3D : un canal par genre de couche).
+   * La vue cadre la texture ; la texture doit avoir la taille `largeur` × `hauteur`.
+   */
+  peindreCanal(couches: CoucheAffichee[], vue: Vue, cadre: WebGLFramebuffer, largeur: number, hauteur: number, canal: number) {
+    const gl = this.gl;
+    const cible = this.preparerCible(largeur, hauteur);
+    this.peindre(cible, { x: 0, y: 0, w: largeur, h: hauteur, vue, couches: [] }, couches, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, cadre);
+    gl.viewport(0, 0, largeur, hauteur);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.colorMask(canal === 0, canal === 1, canal === 2, canal === 3);
+    gl.useProgram(this.pComposer);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, cible.textures[0]);
+    gl.uniform1i(this.u(this.pComposer, "uMasque"), 0);
+    gl.uniform3fv(this.u(this.pComposer, "uCouleur"), [1, 1, 1]);
+    gl.uniform1f(this.u(this.pComposer, "uOpacite"), 1);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.colorMask(true, true, true, true);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  /** Libère les tampons de peinture (après la préparation des textures de la vue 3D). */
+  libererCible() {
+    if (this.cible) this.detruire(this.cible);
+    this.cible = null;
+  }
+
+  /**
    * Masques de deux jeux de couches sur une même grille (pour chercher les différences) : rendu hors écran, lu en
    * mémoire. Renvoie un octet par pixel : bit 0 = présent dans A, bit 1 = présent dans B. Ligne 0 = haut.
    */

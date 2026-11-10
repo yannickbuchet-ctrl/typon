@@ -10,6 +10,7 @@ import { el, longueur, nombre, pluriel, type Unite } from "./dom";
 import { icone, LOGO } from "./icones";
 import { detailsCouche, onglets, resume, type Onglet } from "./panneaux";
 import { Visionneuse, type Panneau, type Pointeur } from "./visionneuse";
+import { Vue3D } from "./vue3d";
 
 type Outil = "info" | "mesure";
 type Affichage = "superposition" | "cote" | "alterner";
@@ -23,6 +24,9 @@ const EXEMPLES = [
 export class App {
   private racine: HTMLElement;
   private visionneuse: Visionneuse | null = null;
+  /** Vue 3D du document A (créée à la demande, détruite quand le document change). */
+  private vue3d: Vue3D | null = null;
+  private en3d = false;
   private zoneVue: HTMLElement;
   private panneauGauche: HTMLElement;
   private panneauDroit: HTMLElement;
@@ -111,6 +115,7 @@ export class App {
       return;
     }
     if (role === "A") {
+      this.fermer3d();
       this.docA?.fermer(this.vue().rendu);
       this.docA = doc;
       if (this.comparaison && this.docB) this.demarrerComparaison();
@@ -173,6 +178,15 @@ export class App {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.ctrlKey || e.metaKey || e.altKey) return;
       if (!this.docA) return;
       const k = e.key.toLowerCase();
+      if (k === "v" && !this.comparaison) {
+        this.basculer3d();
+        return;
+      }
+      if (this.en3d && this.vue3d) {
+        if (k === "f") this.vue3d.recadrer();
+        else if (k === "b") this.vue3d.regarder(this.vue3d.racine.dataset.cote === "dessous" ? "dessus" : "dessous");
+        return;
+      }
       if (k === "f") this.vue().ajuster(this.docA.boite);
       else if (k === "b") this.retourner();
       else if (k === "m") this.choisirOutil(this.outil === "mesure" ? "info" : "mesure");
@@ -217,7 +231,13 @@ export class App {
       this.zoneVue.replaceChildren(this.accueil());
       return;
     }
-    if (!this.zoneVue.contains(this.vue().racine)) this.zoneVue.replaceChildren(this.vue().racine, this.hud);
+    if (this.en3d && !this.comparaison) {
+      if (!this.vue3d) this.ouvrir3d(this.docA);
+      if (!this.zoneVue.contains(this.vue3d!.racine)) this.zoneVue.replaceChildren(this.vue3d!.racine);
+    } else {
+      this.en3d = false;
+      if (!this.zoneVue.contains(this.vue().racine)) this.zoneVue.replaceChildren(this.vue().racine, this.hud);
+    }
     this.afficherPanneauGauche();
     this.afficherPanneauDroit();
     this.chargerVisibles();
@@ -261,8 +281,24 @@ export class App {
           const f = await this.choisirFichiers();
           if (f.length) await this.ouvrirFichiers(f, "B");
         }, { texte: "Comparer" }));
+        elements.push(b("cube", this.en3d ? "Revenir à la vue 2D (V)" : "Voir la carte en 3D (V)", () => this.basculer3d(), { texte: "3D", actif: this.en3d }));
       }
       elements.push(el("span", { class: "espace" }));
+      if (this.en3d && this.vue3d) {
+        const v = this.vue3d;
+        const seg3d = el("div", { class: "segment", role: "group", "aria-label": "Côté vu" });
+        seg3d.append(b("carte", "Voir le dessus", () => v.regarder("dessus"), { texte: "Dessus" }), b("retourner", "Voir le dessous", () => v.regarder("dessous"), { texte: "Dessous" }));
+        elements.push(seg3d);
+        elements.push(b("puce", v.montrerComposants ? "Masquer les composants" : "Afficher les composants", () => {
+          v.montrerComposants = !v.montrerComposants;
+          v.redessiner();
+          this.afficherBarre();
+        }, { actif: v.montrerComposants }));
+        elements.push(b("ajuster", "Recadrer la carte (F)", () => v.recadrer()));
+        elements.push(b(this.racine.dataset.theme === "clair" ? "lune" : "soleil", "Thème clair ou sombre", () => this.theme(this.racine.dataset.theme === "clair" ? "sombre" : "clair"), { classe: "discret" }));
+        this.barre.replaceChildren(...elements.filter((x): x is HTMLElement => !!x));
+        return;
+      }
       const seg = el("div", { class: "segment", role: "group", "aria-label": "Côté vu" });
       seg.append(b("carte", "Vue de dessus (B pour retourner)", () => this.choisirCote("dessus"), { texte: "Dessus", actif: this.cote === "dessus" }), b("retourner", "Vue de dessous, en miroir (B pour retourner)", () => this.choisirCote("dessous"), { texte: "Dessous", actif: this.cote === "dessous" }));
       elements.push(seg);
@@ -348,11 +384,40 @@ export class App {
     await this.ouvrirExemple(fichier, "A");
   }
 
+  /* --- Vue 3D --------------------------------------------------------------------------------------------------------- */
+
+  private ouvrir3d(doc: DocumentTypon) {
+    const v = new Vue3D(doc);
+    this.vue3d = v;
+    v.charger().catch((e) => {
+      this.message(`Vue 3D : ${(e as Error).message}`, "erreur");
+      this.basculer3d(false);
+    });
+  }
+
+  private fermer3d() {
+    this.vue3d?.detruire();
+    this.vue3d = null;
+  }
+
+  private basculer3d(actif = !this.en3d) {
+    this.en3d = actif;
+    this.afficher();
+    // La barre dépend de la vue 3D, créée par afficher().
+    this.afficherBarre();
+    if (actif) {
+      this.vue3d?.racine.focus();
+      this.message("Vue 3D : glissez pour tourner, clic droit ou Maj pour déplacer, molette pour zoomer, clic sur un composant pour ses informations.");
+    } else this.vue().redessiner();
+  }
+
   private fermerTout() {
     if (this.visionneuse) {
       this.docA?.fermer(this.visionneuse.rendu);
       this.docB?.fermer(this.visionneuse.rendu);
     }
+    this.fermer3d();
+    this.en3d = false;
     this.docA = this.docB = null;
     this.comparaison = null;
     this.selection = null;

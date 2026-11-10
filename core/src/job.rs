@@ -9,6 +9,8 @@ pub struct Job {
     pub fichiers: Vec<(String, Vec<String>)>,
     /// Empilage : (couche, type, épaisseur en mm, matériau)
     pub empilage: Vec<(String, String, Option<f64>, String)>,
+    pub epaisseur: Option<f64>,
+    pub finition: Option<String>,
 }
 
 pub fn lire(texte: &str) -> Result<Job, String> {
@@ -52,7 +54,9 @@ pub fn lire(texte: &str) -> Result<Job, String> {
             ));
         }
     }
-    Ok(Job { rubriques, fichiers, empilage })
+    let epaisseur = v.get("GeneralSpecs").and_then(|g| g.get("BoardThickness")).and_then(|t| t.as_f64()).filter(|e| *e > 0.05 && *e < 20.0);
+    let finition = v.get("GeneralSpecs").and_then(|g| g.get("Finish")).and_then(|t| t.as_str()).map(|s| s.to_string());
+    Ok(Job { rubriques, fichiers, empilage, epaisseur, finition })
 }
 
 fn aplatir(v: &Value, prefixe: &str, sortie: &mut Vec<(String, String)>, texte_de: &dyn Fn(&Value) -> String) {

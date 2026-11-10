@@ -53,6 +53,22 @@ Eagle, OrCAD, LibrePCB).
 - Déplacement à la souris, au doigt ou au clavier (flèches), zoom à la molette ou au pincement, **F** pour cadrer la
   carte.
 
+### Vue 3D
+
+Le bouton **3D** (touche **V**) montre la carte en relief :
+
+![Carte d'exemple ODB++ en 3D](captures/vue-3d.png)
+
+
+- plaque découpée selon le contour (découpes comprises), à l'épaisseur donnée par le fichier (ODB++, IPC-2581 ou
+  fichier de job), sinon 1,6 mm ;
+- faces habillées par le cuivre, le vernis épargne (vert, ouvert sur les pastilles dorées) et la sérigraphie, trous
+  traversants métallisés ou non ;
+- boîtiers des composants (ODB++, IPC-2581 et Gerber X3), à la taille de leur empreinte et à leur hauteur quand le
+  fichier la donne (sinon estimée) ; un clic sur un boîtier affiche sa référence, sa valeur et ses dimensions ;
+- rotation en glissant, déplacement au clic droit (ou Maj), zoom à la molette ou au pincement, vues de dessus et de
+  dessous (la carte est retournée comme à la main).
+
 ### ODB++ mis en forme
 
 ![Exemple ODB++ : nomenclature regroupée](captures/odb-nomenclature.png)
@@ -97,6 +113,7 @@ fixation agrandis, sérigraphie modifiée. Ces fichiers sont générés par `scr
 | F | Cadrer la carte |
 | B | Retourner la carte (dessus / dessous) |
 | M | Mesurer |
+| V | Vue 3D ou vue 2D |
 | Échap | Effacer la sélection et la mesure |
 | + et − | Zoom |
 | Flèches | Déplacer la vue |
@@ -140,6 +157,7 @@ python scripts/generer_exemples.py        # cartes d'exemple du site (public/exe
 node scripts/telecharger-exemples.mjs     # fichiers publics de test (Ucamco, ODB++), hors du dépôt
 cd core && cargo test --release -- --nocapture
 node scripts/essai-navigateur.mjs         # après npm run build : parcours complet dans Chromium
+node scripts/essai-3d.mjs                 # après npm run build : vue 3D (exemples, et exemples externes s'il y en a)
 ```
 
 Les essais du moteur comparent le rendu des fichiers de test de la norme Gerber (Ucamco) à leurs images de
