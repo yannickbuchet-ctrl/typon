@@ -5,6 +5,7 @@
 import type { DescriptionCouche } from "../moteur/client";
 import type { DocumentTypon } from "./document";
 import { el, longueur, nombre, pluriel, taille, type Unite } from "./dom";
+import { boutonCsv, boutonVersTitre } from "./csv";
 import { icone } from "./icones";
 
 export interface Onglet {
@@ -16,7 +17,14 @@ export interface Onglet {
 }
 
 function section(titre: string, ...contenu: (Node | string | null | false)[]) {
-  return el("section", { class: "bloc" }, el("h3", { text: titre }), ...contenu);
+  // Le bouton CSV d'un tableau (ou passé tel quel dans le contenu) se place à côté du titre.
+  const h3 = boutonVersTitre(el("h3", { text: titre }), ...contenu);
+  return el("section", { class: "bloc" }, h3, ...contenu.filter((c) => !(c instanceof HTMLElement && c.classList.contains("bouton-csv"))));
+}
+
+/** Bouton CSV d'une liste de définitions (clé, valeur). */
+function csvDefinitions(jeu: string, nom: string, lignes: [string, string | number | null | undefined][]) {
+  return boutonCsv(jeu, nom, () => ({ entetes: ["Propriété", "Valeur"], lignes: lignes.filter(([, v]) => v !== null && v !== undefined && v !== "") }));
 }
 
 function definitions(lignes: [string, string | number | null | undefined][]) {
@@ -29,28 +37,30 @@ function definitions(lignes: [string, string | number | null | undefined][]) {
 }
 
 /** Tableau triable avec filtre. `cliquer` : action sur une ligne (zoom sur un composant, par exemple). */
-export function tableau<T>(lignes: T[], colonnes: { titre: string; valeur: (l: T) => string | number; nombre?: boolean; largeur?: string }[], options: { filtre?: boolean; cliquer?: (l: T) => void; vide?: string; limite?: number } = {}): HTMLElement {
+export function tableau<T>(lignes: T[], colonnes: { titre: string; valeur: (l: T) => string | number; nombre?: boolean; largeur?: string }[], options: { filtre?: boolean; cliquer?: (l: T) => void; vide?: string; limite?: number; csv?: { jeu: string; nom: string } } = {}): HTMLElement {
   const conteneur = el("div", { class: "tableau" });
   let tri = -1;
   let inverse = false;
   let texte = "";
   const corps = el("tbody");
   const compte = el("span", { class: "compte" });
+  const trier = (l: T[]) => {
+    if (tri < 0) return l;
+    const c = colonnes[tri];
+    return [...l].sort((a, b) => {
+      const va = c.valeur(a);
+      const vb = c.valeur(b);
+      const r = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb), "fr", { numeric: true });
+      return inverse ? -r : r;
+    });
+  };
   const remplir = () => {
     let l = lignes;
     if (texte) {
       const t = texte.toLocaleLowerCase("fr");
       l = l.filter((x) => colonnes.some((c) => String(c.valeur(x)).toLocaleLowerCase("fr").includes(t)));
     }
-    if (tri >= 0) {
-      const c = colonnes[tri];
-      l = [...l].sort((a, b) => {
-        const va = c.valeur(a);
-        const vb = c.valeur(b);
-        const r = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb), "fr", { numeric: true });
-        return inverse ? -r : r;
-      });
-    }
+    l = trier(l);
     const limite = options.limite ?? 2000;
     corps.replaceChildren(...l.slice(0, limite).map((x) => {
       const tr = el("tr", options.cliquer ? { class: "cliquable", tabindex: "0", onclick: () => options.cliquer!(x), onkeydown: (e: KeyboardEvent) => e.key === "Enter" && options.cliquer!(x) } : {});
@@ -74,15 +84,17 @@ export function tableau<T>(lignes: T[], colonnes: { titre: string; valeur: (l: T
     tete.append(th);
   });
   if (lignes.length === 0) return el("p", { class: "vide", text: options.vide ?? "Aucune donnée." });
+  // Export CSV : toutes les lignes (ni filtre ni limite d'affichage), dans l'ordre du tri choisi.
+  const csv = options.csv ? boutonCsv(options.csv.jeu, options.csv.nom, () => ({ entetes: colonnes.map((c) => c.titre), lignes: trier(lignes).map((x) => colonnes.map((c) => c.valeur(x))) })) : null;
   if (options.filtre !== false && lignes.length > 8) {
     const champ = el("input", { type: "search", class: "filtre", placeholder: "Filtrer…", "aria-label": "Filtrer le tableau" });
     champ.addEventListener("input", () => {
       texte = champ.value.trim();
       remplir();
     });
-    conteneur.append(el("div", { class: "barre-tableau" }, champ, compte));
+    conteneur.append(el("div", { class: "barre-tableau" }, champ, compte, csv));
   } else {
-    conteneur.append(el("div", { class: "barre-tableau" }, compte));
+    conteneur.append(el("div", { class: "barre-tableau" }, compte, csv));
   }
   conteneur.append(el("div", { class: "defile" }, el("table", {}, el("thead", {}, tete), corps)));
   remplir();
@@ -113,26 +125,26 @@ export function resume(doc: DocumentTypon, unite: Unite): HTMLElement {
     ["Lecture", `${nombre(doc.duree / 1000, 2)} s`],
   ])));
   if (d.meta.job) {
-    for (const r of d.meta.job.rubriques) racine.append(section(`${r.titre} (fichier de job)`, definitions(r.lignes)));
+    for (const r of d.meta.job.rubriques) racine.append(section(`${r.titre} (fichier de job)`, definitions(r.lignes), csvDefinitions(doc.nom, `job ${r.titre}`, r.lignes)));
     if (d.meta.job.empilage.length) {
       racine.append(section("Empilage (fichier de job)", tableau(d.meta.job.empilage, [
         { titre: "Couche", valeur: (l) => l.nom },
         { titre: "Type", valeur: (l) => l.type },
         { titre: "Épaisseur (mm)", valeur: (l) => l.epaisseur ?? "", nombre: true },
         { titre: "Matériau", valeur: (l) => l.materiau },
-      ], { filtre: false })));
+      ], { filtre: false, csv: { jeu: doc.nom, nom: "empilage" } })));
     }
   }
   if (d.meta.odb) {
     const source = d.meta.odb.source ?? "ODB++";
-    racine.append(section(`Fichier ${source}`, definitions(d.meta.odb.info)));
+    racine.append(section(`Fichier ${source}`, definitions(d.meta.odb.info), csvDefinitions(doc.nom, `informations ${source}`, d.meta.odb.info)));
     racine.append(section(source === "ODB++" ? `Matrice des couches (étape « ${d.meta.odb.etape} »)` : `Couches (étape « ${d.meta.odb.etape} »)`, tableau(d.meta.odb.empilage, [
       { titre: "Couche", valeur: (l) => l.nom },
       { titre: source === "ODB++" ? "Type ODB++" : "Fonction", valeur: (l) => l.type },
       { titre: "Rôle", valeur: (l) => l.role },
       { titre: "De → à", valeur: (l) => (l.debut ? `${l.debut} → ${l.fin}` : "") },
       { titre: "Éléments", valeur: (l) => l.elements, nombre: true },
-    ])));
+    ], { csv: { jeu: doc.nom, nom: source === "ODB++" ? "matrice des couches" : "couches" } })));
     if (d.meta.odb.etapes.length > 1) racine.append(section("Étapes", el("p", { text: d.meta.odb.etapes.join(", ") })));
   }
   if (d.meta.netlist) racine.append(section("Netlist IPC-D-356", definitions([["Fichier", d.meta.netlist.fichier], ["Nets", d.meta.netlist.nets]])));
@@ -141,7 +153,7 @@ export function resume(doc: DocumentTypon, unite: Unite): HTMLElement {
       { titre: "Fichier", valeur: (l) => l.fichier },
       { titre: "Ouvertures", valeur: (l) => l.ouvertures, nombre: true },
       { titre: "Unité", valeur: (l) => l.unite },
-    ], { filtre: false })));
+    ], { filtre: false, csv: { jeu: doc.nom, nom: "listes d'ouvertures" } })));
   }
   const alertes = [...d.alertes, ...(d.meta.odb?.alertes ?? [])];
   if (alertes.length) racine.append(section("Remarques", el("ul", { class: "alertes" }, ...alertes.map((a) => el("li", { html: icone("alerte", 14) }, el("span", { text: a }))))));
@@ -150,7 +162,7 @@ export function resume(doc: DocumentTypon, unite: Unite): HTMLElement {
 }
 
 /** Détails d'une couche : format, attributs X2, ouvertures, outils, commentaires, alertes. */
-export function detailsCouche(c: DescriptionCouche, unite: Unite): HTMLElement {
+export function detailsCouche(c: DescriptionCouche, unite: Unite, jeu = ""): HTMLElement {
   const m = c.meta;
   const racine = el("div", { class: "details-couche" });
   racine.append(definitions([
@@ -167,21 +179,23 @@ export function detailsCouche(c: DescriptionCouche, unite: Unite): HTMLElement {
     [m.format === "IPC-2581" ? "Fonction IPC-2581" : "Type ODB++", m.typeOdb],
     [m.format === "IPC-2581" ? "Nom IPC-2581" : "Nom ODB++", m.nomOdb],
   ]));
-  if (m.attributs?.length) racine.append(el("h4", { text: "Attributs du fichier (X2)" }), definitions(m.attributs));
+  if (m.attributs?.length) racine.append(el("h4", { class: "titre-avec-csv", text: "Attributs du fichier (X2)" }, csvDefinitions(jeu, `attributs X2 ${c.nom}`, m.attributs)), definitions(m.attributs));
   if (m.outils?.length) {
-    racine.append(el("h4", { text: "Outils de perçage" }), tableau(m.outils, [
+    const outils = tableau(m.outils, [
       { titre: "Outil", valeur: (o) => `T${String(o.numero).padStart(2, "0")}` },
       { titre: "Diamètre", valeur: (o) => longueur(o.diametre, unite, 3) },
       { titre: "Trous", valeur: (o) => o.trous, nombre: true },
       { titre: "Fraisages", valeur: (o) => o.fraisages, nombre: true },
-    ], { filtre: false }));
+    ], { filtre: false, csv: { jeu, nom: `outils ${c.nom}` } });
+    racine.append(boutonVersTitre(el("h4", { text: "Outils de perçage" }), outils), outils);
   }
   if (m.ouvertures?.length) {
-    racine.append(el("h4", { text: "Ouvertures (apertures)" }), tableau(m.ouvertures, [
+    const ouvertures = tableau(m.ouvertures, [
       { titre: "Code", valeur: (o) => o.code, largeur: "4.5em" },
       { titre: "Forme", valeur: (o) => o.forme },
       { titre: "Fonction (X2)", valeur: (o) => o.fonction ?? "" },
-    ]));
+    ], { csv: { jeu, nom: `ouvertures ${c.nom}` } });
+    racine.append(boutonVersTitre(el("h4", { text: "Ouvertures (apertures)" }), ouvertures), ouvertures);
   }
   if (m.commentaires?.length) racine.append(el("h4", { text: "Commentaires du fichier" }), el("pre", { class: "commentaires", text: m.commentaires.join("\n") }));
   if (m.alertes?.length) racine.append(el("h4", { text: "Remarques" }), el("ul", { class: "alertes" }, ...m.alertes.map((a) => el("li", { text: a }))));
@@ -200,7 +214,7 @@ export function onglets(doc: DocumentTypon, unite: Unite, allerA: (x: number, y:
       { titre: "Pièce", valeur: (c) => c.piece },
       { titre: "Côté", valeur: (c) => c.cote },
       { titre: "Rotation", valeur: (c) => (typeof c.rotation === "number" ? `${nombre(c.rotation, 1)}°` : c.rotation ? `${c.rotation}°` : "") },
-    ], { cliquer: composants[0].x !== undefined ? (c) => allerA(c.x!, c.y!) : undefined, vide: "Aucun composant." }) });
+    ], { cliquer: composants[0].x !== undefined ? (c) => allerA(c.x!, c.y!) : undefined, vide: "Aucun composant.", csv: { jeu: doc.nom, nom: "composants" } }) });
   }
   const bom = d.meta.nomenclature ?? [];
   if (bom.length) {
@@ -209,7 +223,7 @@ export function onglets(doc: DocumentTypon, unite: Unite, allerA: (x: number, y:
       { titre: "Pièce", valeur: (l) => l.piece },
       { titre: "Valeur", valeur: (l) => l.valeur },
       { titre: "Repères", valeur: (l) => l.references.join(", ") },
-    ]) });
+    ], { csv: { jeu: doc.nom, nom: "nomenclature" } }) });
   }
   const nets = d.meta.nets ?? [];
   if (nets.length) {
@@ -217,7 +231,7 @@ export function onglets(doc: DocumentTypon, unite: Unite, allerA: (x: number, y:
     r.push({ id: "nets", titre: "Nets", icone: "reseau", compte: nets.length, contenu: () => tableau(nets, [
       { titre: "Net", valeur: (n) => n.nom },
       ...(avecCompte ? [{ titre: "Éléments", valeur: (n: { elements: number | null }) => n.elements ?? 0, nombre: true }] : []),
-    ]) });
+    ], { csv: { jeu: doc.nom, nom: "nets" } }) });
   }
   const outilsOdb = d.meta.odb?.outils ?? [];
   const percages = d.couches.filter((c) => c.meta.outils?.length);
@@ -230,7 +244,7 @@ export function onglets(doc: DocumentTypon, unite: Unite, allerA: (x: number, y:
           { titre: "Diamètre", valeur: (o) => longueur(o.diametre, unite, 3) },
           { titre: "Trous", valeur: (o) => o.trous, nombre: true },
           { titre: "Fraisages", valeur: (o) => o.fraisages, nombre: true },
-        ], { filtre: false })));
+        ], { filtre: false, csv: { jeu: doc.nom, nom: `perçages ${p.nom}` } })));
       }
       for (const p of outilsOdb) {
         div.append(section(`${p.couche}${p.debut ? ` (${p.debut} → ${p.fin})` : ""}`, tableau(p.outils, [
@@ -239,7 +253,7 @@ export function onglets(doc: DocumentTypon, unite: Unite, allerA: (x: number, y:
           { titre: "Perçage", valeur: (o) => longueur(o.percage, unite, 3) },
           { titre: "Fini", valeur: (o) => longueur(o.fini, unite, 3) },
           { titre: "Trous", valeur: (o) => o.trous, nombre: true },
-        ], { filtre: false })));
+        ], { filtre: false, csv: { jeu: doc.nom, nom: `perçages ${p.couche}` } })));
       }
       return div;
     } });

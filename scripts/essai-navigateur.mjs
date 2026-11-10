@@ -14,7 +14,7 @@ const captures = path.join(racine, "captures");
 const essais = path.join(racine, "essais");
 fs.mkdirSync(captures, { recursive: true });
 fs.mkdirSync(essais, { recursive: true });
-const PORT = 4191;
+const PORT = Number(process.env.PORT_ESSAI) || 4191;
 const bilan = [];
 const erreurs = [];
 const verifier = (condition, message) => {

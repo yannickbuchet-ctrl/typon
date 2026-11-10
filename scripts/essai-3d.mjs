@@ -12,7 +12,7 @@ import path from "node:path";
 const racine = path.resolve(import.meta.dirname, "..");
 const captures = path.join(racine, "essais", "3d");
 mkdirSync(captures, { recursive: true });
-const PORT = 4192;
+const PORT = Number(process.env.PORT_ESSAI ?? 4193);
 const verifier = (c, m) => {
   if (!c) throw new Error(m);
 };
