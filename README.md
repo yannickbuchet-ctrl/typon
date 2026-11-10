@@ -52,6 +52,11 @@ Eagle, OrCAD, LibrePCB).
   ses commentaires et les éventuelles remarques de lecture.
 - Déplacement à la souris, au doigt ou au clavier (flèches), zoom à la molette ou au pincement, **F** pour cadrer la
   carte.
+- **Export CSV** : chaque tableau (composants, nomenclature, nets, perçages, empilage, matrice des couches, fichiers,
+  ouvertures, attributs X2, informations ODB++ ou IPC-2581, couches comparées, zones de différence, composants
+  modifiés) a un petit bouton **CSV** à côté de son titre. Le fichier s'ouvre directement dans Excel en français
+  (séparateur « ; », virgule décimale, UTF-8) et contient toutes les lignes, même celles que le filtre masque ou que
+  l'affichage limite, dans l'ordre du tri choisi.
 
 ### ODB++ mis en forme
 
@@ -140,7 +145,10 @@ python scripts/generer_exemples.py        # cartes d'exemple du site (public/exe
 node scripts/telecharger-exemples.mjs     # fichiers publics de test (Ucamco, ODB++), hors du dépôt
 cd core && cargo test --release -- --nocapture
 node scripts/essai-navigateur.mjs         # après npm run build : parcours complet dans Chromium
+node scripts/essai-csv.mjs                # après npm run build : export CSV de chaque tableau
 ```
+
+Les deux essais dans le navigateur prennent leur port dans la variable `PORT_ESSAI` (4191 et 4192 par défaut).
 
 Les essais du moteur comparent le rendu des fichiers de test de la norme Gerber (Ucamco) à leurs images de
 référence, lisent tous les jeux d'exemple (cartes KiCad et LibrePCB en X2/X3, XNC, fichiers de job, ODB++ officiel

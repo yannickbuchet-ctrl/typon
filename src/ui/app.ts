@@ -5,6 +5,7 @@ import type { ObjetTrouve } from "../moteur/client";
 import { moteur } from "../moteur/client";
 import { couleurRgb, type CoucheAffichee } from "../rendu/rendu";
 import { alignementAuto, analyser, apparier, comparerComposants, type Paire, type ZoneMm } from "./comparaison";
+import { boutonCsv, csvDifferencesComposants, csvFichiers, csvPaires, csvZones } from "./csv";
 import { DocumentTypon, ouvrir, type Cote, type EtatCouche } from "./document";
 import { el, longueur, nombre, pluriel, type Unite } from "./dom";
 import { icone, LOGO } from "./icones";
@@ -678,7 +679,7 @@ export class App {
     if (this.ongletActif.startsWith("couche:")) {
       const id = Number(this.ongletActif.slice(7));
       const c = doc.couches.find((x) => x.desc.id === id);
-      if (c) liste.push({ id: this.ongletActif, titre: c.desc.nom, icone: "couches", contenu: () => detailsCouche(c.desc, this.unite) });
+      if (c) liste.push({ id: this.ongletActif, titre: c.desc.nom, icone: "couches", contenu: () => detailsCouche(c.desc, this.unite, doc.nom) });
     }
     if (!liste.some((o) => o.id === this.ongletActif)) this.ongletActif = this.comparaison ? "differences" : "carte";
     const actif = liste.find((o) => o.id === this.ongletActif)!;
@@ -716,7 +717,8 @@ export class App {
         this.afficherPanneauDroit();
       } }, el("span", { class: "puce-couleur", style: { background: c.couleur } }), el("span", { class: "fichier-nom" }, el("strong", { text: c.desc.nom }), el("span", { text: `${c.desc.fichier.split("/").pop()} · ${c.desc.meta.format ?? c.desc.format}${c.desc.meta.alertes?.length ? " · ⚠" : ""}` })), el("span", { class: "fichier-compte", text: nombre(c.desc.objets, 0) }))));
     }
-    return el("div", {}, el("p", { class: "discret", text: "Cliquez sur une couche pour voir son format, ses attributs X2, ses ouvertures ou ses outils." }), ul);
+    const csv = el("div", { class: "barre-tableau" }, el("span", { class: "compte", text: pluriel(doc.couches.length, "couche") }), boutonCsv(doc.nom, "fichiers", () => csvFichiers(this.ordre(doc.couches))));
+    return el("div", {}, el("p", { class: "discret", text: "Cliquez sur une couche pour voir son format, ses attributs X2, ses ouvertures ou ses outils." }), csv, ul);
   }
 
   /* --- Comparaison ------------------------------------------------------------------------------------------------ */
@@ -814,7 +816,7 @@ export class App {
       this.relancerAnalyse();
     } }, ...[0, 0.01, 0.02, 0.05, 0.1, 0.2].map((t) => el("option", { value: String(t), text: t ? longueur(t, this.unite, 3) : "rien (exact)", selected: t === cmp.tolerance }))));
     reglages.append(aligner, tolerance);
-    return el("div", {}, el("div", { class: "titre-panneau" }, el("h2", { html: `${icone("comparer", 16)} Couches comparées` }), el("span", { class: "compte", text: String(cmp.paires.length) })), ul, reglages);
+    return el("div", {}, el("div", { class: "titre-panneau" }, el("h2", { html: `${icone("comparer", 16)} Couches comparées` }), el("span", { class: "compte", text: String(cmp.paires.length) }), boutonCsv(this.nomComparaison(), "couches comparées", () => csvPaires(cmp.paires))), ul, reglages);
   }
 
   private relancerAnalyse() {
@@ -917,6 +919,8 @@ export class App {
         el("span", { class: "dimension", text: `${longueur(z.x1 - z.x0, this.unite, 2)} × ${longueur(z.y1 - z.y0, this.unite, 2)}` }))));
     });
     racine.append(ul);
+    racine.querySelector(".titre-paire")!.append(boutonCsv(this.nomComparaison(), `zones ${p.libelle}`, () => csvZones(p, this.unite)));
+    racine.querySelector(".titre-paire")!.classList.add("titre-avec-csv");
     if (p.resolution) racine.append(el("p", { class: "discret", text: `Comparaison au pas de ${longueur(p.resolution, this.unite, 3)}.` }));
     racine.append(this.differencesComposants());
     return racine;
@@ -949,8 +953,16 @@ export class App {
       const c = cb.find((x) => x.reference === m.reference);
       ul.append(ligne("modifié", m.reference, m.changements.join(" ; "), c?.x, c?.y));
     }
+    const h3 = bloc.querySelector("h3")!;
+    h3.classList.add("titre-avec-csv");
+    h3.append(boutonCsv(this.nomComparaison(), "différences de composants", () => csvDifferencesComposants(d, cb)));
     bloc.append(el("p", { class: "discret", text: `${pluriel(d.ajoutes.length, "ajouté")}, ${pluriel(d.retires.length, "retiré")}, ${pluriel(d.modifies.length, "modifié")}, ${pluriel(d.communs - d.modifies.length, "inchangé")}.` }), ul);
     return bloc;
+  }
+
+  /** Nom des fichiers CSV d'une comparaison : « <A>-<B> ». */
+  private nomComparaison(): string {
+    return `${this.docA?.nom ?? "A"}-${this.docB?.nom ?? "B"}`;
   }
 
   private async rapport() {

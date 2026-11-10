@@ -164,6 +164,11 @@ button, input, select { font: inherit; color: inherit; }
 /* Tableaux */
 .tableau { display: flex; flex-direction: column; gap: 6px; }
 .barre-tableau { display: flex; align-items: center; gap: 8px; }
+
+/* Export CSV : petit bouton discret à côté du titre d'un tableau */
+.titre-avec-csv { display: flex; align-items: center; gap: 8px; }
+.bouton-csv { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--texte-3); font-size: 0.68rem; font-weight: 600; letter-spacing: 0.04em; text-transform: none; cursor: pointer; }
+.bouton-csv:hover, .bouton-csv:focus-visible { color: var(--texte); border-color: var(--bord); background: var(--panneau-2); }
 .filtre { flex: 1; background: var(--fond-2); border: 1px solid var(--bord); border-radius: 7px; padding: 5px 9px; }
 .defile { overflow: auto; max-height: 62vh; border: 1px solid var(--bord-doux); border-radius: 8px; }
 table { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
