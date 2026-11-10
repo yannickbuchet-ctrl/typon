@@ -18,6 +18,9 @@ Une fois ouvert, Typon fonctionne aussi **hors ligne**, et peut s'installer comm
 
 Rien à installer : un navigateur récent suffit (Chrome, Edge, Firefox, Safari), sur ordinateur, tablette ou téléphone.
 
+L'interface est en **français et en anglais** (*English interface available*) : elle suit la langue du navigateur, et
+le sélecteur FR/EN de la barre du haut permet d'en changer (le choix est mémorisé).
+
 ## Formats lus
 
 | Format | Détails |

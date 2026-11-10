@@ -2,6 +2,8 @@
  * Comparaison de deux jeux (A : version de référence, B : nouvelle version) : appariement des couches (même rôle,
  * même côté, même numéro, quel que soit le format), alignement des origines, recherche des zones de différence.
  */
+import { langue, t } from "../i18n";
+import { traduireMoteur } from "../i18n-moteur";
 import { moteur, type Composant } from "../moteur/client";
 import type { CoucheAffichee, Rendu, Vue } from "../rendu/rendu";
 import type { DocumentTypon, EtatCouche } from "./document";
@@ -176,23 +178,23 @@ export function comparerComposants(a: Composant[], b: Composant[], decalage: { d
     const comparer = (nom: string, va: unknown, vb: unknown) => {
       const sa = String(va ?? "").trim();
       const sb = String(vb ?? "").trim();
-      if (sa && sb && sa !== sb) changements.push(`${nom} : ${sa} → ${sb}`);
+      if (sa && sb && sa !== sb) changements.push(t("cmp.changement", { nom, a: sa, b: sb }));
     };
-    comparer("valeur", ca.valeur, cb.valeur);
-    comparer("boîtier", ca.boitier, cb.boitier);
-    comparer("pièce", ca.piece, cb.piece);
+    comparer(t("cmp.changement.valeur"), ca.valeur, cb.valeur);
+    comparer(t("cmp.changement.boitier"), ca.boitier, cb.boitier);
+    comparer(t("cmp.changement.piece"), ca.piece, cb.piece);
     const rot = (v: number | string) => {
       const n = Number(String(v).replace(",", "."));
       return Number.isFinite(n) ? ((n % 360) + 360) % 360 : NaN;
     };
     const ra = rot(ca.rotation);
     const rb = rot(cb.rotation);
-    if (Number.isFinite(ra) && Number.isFinite(rb) && Math.abs(ra - rb) > 0.05) changements.push(`rotation : ${ra}° → ${rb}°`);
+    if (Number.isFinite(ra) && Number.isFinite(rb) && Math.abs(ra - rb) > 0.05) changements.push(t("cmp.changement", { nom: t("cmp.changement.rotation"), a: `${ra}°`, b: `${rb}°` }));
     if (ca.x !== undefined && cb.x !== undefined && ca.y !== undefined && cb.y !== undefined) {
       const d = Math.hypot(cb.x + decalage.dx - ca.x, cb.y + decalage.dy - ca.y);
-      if (d > 0.01) changements.push(`déplacé de ${d.toFixed(3).replace(".", ",")} mm`);
+      if (d > 0.01) changements.push(t("cmp.changement.deplace", { d: langue() === "fr" ? d.toFixed(3).replace(".", ",") : d.toFixed(3) }));
     }
-    if (ca.cote && cb.cote && ca.cote !== cb.cote) changements.push(`côté : ${ca.cote} → ${cb.cote}`);
+    if (ca.cote && cb.cote && ca.cote !== cb.cote) changements.push(t("cmp.changement", { nom: t("cmp.changement.cote"), a: traduireMoteur(ca.cote), b: traduireMoteur(cb.cote) }));
     if (changements.length) r.modifies.push({ reference: ref, changements });
   }
   for (const [ref, cb] of mb) if (!ma.has(ref)) r.ajoutes.push(cb);

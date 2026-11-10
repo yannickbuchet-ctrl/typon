@@ -1,13 +1,15 @@
 /**
  * Application Typon : accueil, visionneuse, panneaux, comparaison.
  */
+import { appliquerDocument, choisirLangue, langue, t, type Cle, type Langue } from "../i18n";
+import { traduireMoteur as tm } from "../i18n-moteur";
 import type { ObjetTrouve } from "../moteur/client";
 import { moteur } from "../moteur/client";
 import { couleurRgb, type CoucheAffichee } from "../rendu/rendu";
 import { alignementAuto, analyser, apparier, comparerComposants, type Paire, type ZoneMm } from "./comparaison";
 import { boutonCsv, csvDifferencesComposants, csvFichiers, csvPaires, csvZones } from "./csv";
 import { DocumentTypon, ouvrir, type Cote, type EtatCouche } from "./document";
-import { el, longueur, nombre, pluriel, type Unite } from "./dom";
+import { el, longueur, nombre, type Unite } from "./dom";
 import { icone, LOGO } from "./icones";
 import { detailsCouche, onglets, resume, type Onglet } from "./panneaux";
 import { Visionneuse, type Panneau, type Pointeur } from "./visionneuse";
@@ -16,10 +18,10 @@ import { Vue3D } from "./vue3d";
 type Outil = "info" | "mesure";
 type Affichage = "superposition" | "cote" | "alterner";
 
-const EXEMPLES = [
-  { fichier: "exemples/typon-demo-revA.zip", titre: "Carte d'exemple", texte: "Gerber X2 et perçages d'une carte fictive à 4 couches", icone: "carte" },
-  { fichier: "exemples/typon-demo-revA-odb.tgz", titre: "La même en ODB++", texte: "Composants, nets, nomenclature mis en forme", icone: "puce" },
-  { fichier: "comparer", titre: "Comparer deux révisions", texte: "Révision A et révision B de la carte d'exemple", icone: "comparer" },
+const EXEMPLES: { fichier: string; titre: Cle; texte: Cle; icone: string }[] = [
+  { fichier: "exemples/typon-demo-revA.zip", titre: "exemple.carte.titre", texte: "exemple.carte.texte", icone: "carte" },
+  { fichier: "exemples/typon-demo-revA-odb.tgz", titre: "exemple.odb.titre", texte: "exemple.odb.texte", icone: "puce" },
+  { fichier: "comparer", titre: "exemple.comparer.titre", texte: "exemple.comparer.texte", icone: "comparer" },
 ];
 
 export class App {
@@ -44,16 +46,20 @@ export class App {
   private ongletActif = "carte";
   private comparaison: { paires: Paire[]; choisie: number; affichage: Affichage; montrerB: boolean; zone: number; decalage: { dx: number; dy: number }; aligner: boolean; tolerance: number; analyse: boolean } | null = null;
   private occupe = 0;
+  private confidentialite: HTMLElement;
 
   constructor(racine: HTMLElement) {
     this.racine = racine;
     this.barre = el("header", { class: "barre" });
-    this.panneauGauche = el("aside", { class: "panneau gauche", "aria-label": "Couches" });
-    this.panneauDroit = el("aside", { class: "panneau droit", "aria-label": "Informations" });
+    this.panneauGauche = el("aside", { class: "panneau gauche" });
+    this.panneauDroit = el("aside", { class: "panneau droit" });
     this.zoneVue = el("main", { class: "zone-vue" });
     this.hud = el("div", { class: "hud", "aria-live": "off" });
     this.etat = el("div", { class: "etat", role: "status", "aria-live": "polite" });
-    racine.append(this.barre, el("div", { class: "corps" }, this.panneauGauche, this.zoneVue, this.panneauDroit), el("footer", { class: "pied" }, this.etat, el("span", { class: "confidentialite", html: `${icone("info", 14)} Vos fichiers restent sur cet appareil : rien n'est envoyé.` })));
+    this.confidentialite = el("span", { class: "confidentialite" });
+    racine.append(this.barre, el("div", { class: "corps" }, this.panneauGauche, this.zoneVue, this.panneauDroit), el("footer", { class: "pied" }, this.etat, this.confidentialite));
+    appliquerDocument();
+    this.traduireCadre();
     this.installerDepot();
     this.installerClavier();
     this.theme(localStorage.getItem("typon-theme") === "clair" ? "clair" : "sombre");
@@ -75,7 +81,7 @@ export class App {
       return await travail();
     } catch (e) {
       console.error(e);
-      this.message((e as Error).message || String(e), "erreur");
+      this.message(tm((e as Error).message || String(e)), "erreur");
       return undefined;
     } finally {
       this.occupe--;
@@ -107,12 +113,12 @@ export class App {
   /** Ouvre un jeu de fichiers : en A (visionneuse), ou en B (comparaison). */
   async ouvrirFichiers(fichiers: File[], role: "A" | "B" = "A", nom?: string) {
     if (!fichiers.length) return;
-    const doc = await this.attendre(`Lecture de ${fichiers.length > 1 ? pluriel(fichiers.length, "fichier") : `« ${fichiers[0].name} »`}…`, () => ouvrir(fichiers, nom));
+    const doc = await this.attendre(fichiers.length > 1 ? t("etat.lecture.fichiers", { n: fichiers.length }) : t("etat.lecture.fichier", { nom: fichiers[0].name }), () => ouvrir(fichiers, nom));
     if (!doc) return;
     if (!doc.couches.length) {
       doc.fermer(this.vue().rendu);
       const ignores = doc.description.ignores;
-      this.message(`Aucune couche Gerber, perçage ou ODB++ reconnue${ignores.length ? ` (${ignores.slice(0, 5).join(", ")}${ignores.length > 5 ? "…" : ""})` : ""}.${doc.description.alertes.length ? ` ${doc.description.alertes[0]}` : ""}`, "erreur");
+      this.message(t("etat.aucuneCouche", { details: ignores.length ? ` (${ignores.slice(0, 5).join(", ")}${ignores.length > 5 ? "…" : ""})` : "", alerte: doc.description.alertes.length ? ` ${tm(doc.description.alertes[0])}` : "" }), "erreur");
       return;
     }
     if (role === "A") {
@@ -135,12 +141,12 @@ export class App {
     this.afficher();
     this.vue().ajuster(this.docA?.boite ?? doc.boite);
     const alertes = doc.description.alertes.length + (doc.description.meta.odb?.alertes.length ?? 0) + doc.couches.reduce((s, c) => s + (c.desc.meta.alertes?.length ?? 0), 0);
-    this.message(`« ${doc.nom} » : ${pluriel(doc.couches.length, "couche")} lue${doc.couches.length > 1 ? "s" : ""} en ${nombre(doc.duree / 1000, 2)} s.${alertes ? ` ${pluriel(alertes, "remarque")} dans le panneau Carte.` : ""}`, "succes");
+    this.message(t("etat.lu", { nom: doc.nom, n: doc.couches.length, duree: nombre(doc.duree / 1000, 2) }) + (alertes ? t("etat.remarques", { n: alertes }) : ""), "succes");
   }
 
   async ouvrirExemple(fichier: string, role: "A" | "B" = "A") {
-    const reponse = await this.attendre("Chargement de l'exemple…", () => fetch(fichier).then((r) => {
-      if (!r.ok) throw new Error(`Exemple introuvable (${r.status}).`);
+    const reponse = await this.attendre(t("etat.chargementExemple"), () => fetch(fichier).then((r) => {
+      if (!r.ok) throw new Error(t("etat.exempleIntrouvable", { statut: r.status }));
       return r.blob();
     }));
     if (!reponse) return;
@@ -251,7 +257,7 @@ export class App {
       return bt;
     };
     const elements: (HTMLElement | null)[] = [
-      el("a", { class: "marque", href: "./", html: `${LOGO}<span>Typon</span>`, title: "Typon — accueil", onclick: (e: Event) => {
+      el("a", { class: "marque", href: "./", html: `${LOGO}<span>Typon</span>`, title: t("barre.accueil"), onclick: (e: Event) => {
         e.preventDefault();
         this.fermerTout();
       } }),
@@ -260,69 +266,97 @@ export class App {
       if (this.comparaison) {
         elements.push(el("div", { class: "pastilles-docs" },
           this.pastille("A", this.docA),
-          b("echange", "Échanger A et B", () => this.echanger(), { classe: "discret" }),
-          this.docB ? this.pastille("B", this.docB) : el("button", { type: "button", class: "bouton principal", "data-depot": "B", html: `${icone("ouvrir")}<span>Version B…</span>`, onclick: async () => this.ouvrirFichiers(await this.choisirFichiers(), "B") })));
-        const segment = el("div", { class: "segment", role: "group", "aria-label": "Affichage de la comparaison" });
-        for (const [m, t, ic] of [["superposition", "Superposition", "couches"], ["cote", "Côte à côte", "comparer"], ["alterner", "Alterner A/B", "echange"]] as const) {
-          segment.append(b(ic, `${t} (${["superposition", "cote", "alterner"].indexOf(m) + 1})`, () => this.choisirAffichage(m), { texte: t, actif: this.comparaison.affichage === m }));
+          b("echange", t("barre.echanger"), () => this.echanger(), { classe: "discret" }),
+          this.docB ? this.pastille("B", this.docB) : el("button", { type: "button", class: "bouton principal", "data-depot": "B", html: `${icone("ouvrir")}<span>${t("barre.versionB")}</span>`, onclick: async () => this.ouvrirFichiers(await this.choisirFichiers(), "B") })));
+        const segment = el("div", { class: "segment", role: "group", "aria-label": t("barre.affichage") });
+        for (const [m, cle, ic] of [["superposition", "barre.superposition", "couches"], ["cote", "barre.coteACote", "comparer"], ["alterner", "barre.alterner", "echange"]] as const) {
+          const texte = t(cle);
+          segment.append(b(ic, `${texte} (${["superposition", "cote", "alterner"].indexOf(m) + 1})`, () => this.choisirAffichage(m), { texte, actif: this.comparaison.affichage === m }));
         }
         elements.push(segment);
-        if (this.comparaison.affichage === "alterner") elements.push(b("echange", "Voir l'autre version (barre d'espace)", () => {
+        if (this.comparaison.affichage === "alterner") elements.push(b("echange", t("barre.autreVersion"), () => {
           this.comparaison!.montrerB = !this.comparaison!.montrerB;
           this.afficherBarre();
           this.vue().redessiner();
-        }, { texte: this.comparaison.montrerB ? "B affichée" : "A affichée", classe: "bascule" }));
+        }, { texte: this.comparaison.montrerB ? t("barre.bAffichee") : t("barre.aAffichee"), classe: "bascule" }));
       } else {
         elements.push(el("div", { class: "pastilles-docs" }, this.pastille("", this.docA)));
-        elements.push(b("ouvrir", "Ouvrir d'autres fichiers", async () => this.ouvrirFichiers(await this.choisirFichiers()), { texte: "Ouvrir" }));
-        elements.push(b("comparer", "Comparer avec une autre version", async () => {
+        elements.push(b("ouvrir", t("barre.ouvrirAutres"), async () => this.ouvrirFichiers(await this.choisirFichiers()), { texte: t("barre.ouvrir") }));
+        elements.push(b("comparer", t("barre.comparerAvec"), async () => {
           this.comparaison = { paires: [], choisie: 0, affichage: "superposition", montrerB: false, zone: -1, decalage: { dx: 0, dy: 0 }, aligner: true, tolerance: 0.05, analyse: false };
           this.afficher();
-          this.message("Choisissez ou déposez la version B (nouvelle version) à comparer.");
+          this.message(t("etat.choisirB"));
           const f = await this.choisirFichiers();
           if (f.length) await this.ouvrirFichiers(f, "B");
-        }, { texte: "Comparer" }));
-        elements.push(b("cube", this.en3d ? "Revenir à la vue 2D (V)" : "Voir la carte en 3D (V)", () => this.basculer3d(), { texte: "3D", actif: this.en3d }));
+        }, { texte: t("barre.comparer") }));
+        elements.push(b("cube", this.en3d ? t("3d.revenir2d") : t("3d.voir"), () => this.basculer3d(), { texte: "3D", actif: this.en3d }));
       }
       elements.push(el("span", { class: "espace" }));
       if (this.en3d && this.vue3d) {
         const v = this.vue3d;
-        const seg3d = el("div", { class: "segment", role: "group", "aria-label": "Côté vu" });
-        seg3d.append(b("carte", "Voir le dessus", () => v.regarder("dessus"), { texte: "Dessus" }), b("retourner", "Voir le dessous", () => v.regarder("dessous"), { texte: "Dessous" }));
+        const seg3d = el("div", { class: "segment cote-vu", role: "group", "aria-label": t("barre.coteVu") });
+        seg3d.append(b("carte", t("3d.voirDessus"), () => v.regarder("dessus"), { texte: t("barre.dessus") }), b("retourner", t("3d.voirDessous"), () => v.regarder("dessous"), { texte: t("barre.dessous") }));
         elements.push(seg3d);
-        elements.push(b("puce", v.montrerComposants ? "Masquer les composants" : "Afficher les composants", () => {
+        elements.push(b("puce", v.montrerComposants ? t("3d.masquerComposants") : t("3d.afficherComposants"), () => {
           v.montrerComposants = !v.montrerComposants;
           v.redessiner();
           this.afficherBarre();
         }, { actif: v.montrerComposants }));
-        elements.push(b("ajuster", "Recadrer la carte (F)", () => v.recadrer()));
-        elements.push(b(this.racine.dataset.theme === "clair" ? "lune" : "soleil", "Thème clair ou sombre", () => this.theme(this.racine.dataset.theme === "clair" ? "sombre" : "clair"), { classe: "discret" }));
+        elements.push(b("ajuster", t("3d.recadrer"), () => v.recadrer()));
+        elements.push(...this.finBarre(b));
         this.barre.replaceChildren(...elements.filter((x): x is HTMLElement => !!x));
         return;
       }
-      const seg = el("div", { class: "segment", role: "group", "aria-label": "Côté vu" });
-      seg.append(b("carte", "Vue de dessus (B pour retourner)", () => this.choisirCote("dessus"), { texte: "Dessus", actif: this.cote === "dessus" }), b("retourner", "Vue de dessous, en miroir (B pour retourner)", () => this.choisirCote("dessous"), { texte: "Dessous", actif: this.cote === "dessous" }));
+      const seg = el("div", { class: "segment cote-vu", role: "group", "aria-label": t("barre.coteVu") });
+      seg.append(b("carte", t("barre.vueDessus"), () => this.choisirCote("dessus"), { texte: t("barre.dessus"), actif: this.cote === "dessus" }), b("retourner", t("barre.vueDessous"), () => this.choisirCote("dessous"), { texte: t("barre.dessous"), actif: this.cote === "dessous" }));
       elements.push(seg);
-      const outils = el("div", { class: "segment", role: "group", "aria-label": "Outil" });
-      outils.append(b("info", "Informations sur l'objet cliqué", () => this.choisirOutil("info"), { actif: this.outil === "info" }), b("mesure", "Mesurer une distance (M)", () => this.choisirOutil("mesure"), { actif: this.outil === "mesure" }));
+      const outils = el("div", { class: "segment", role: "group", "aria-label": t("barre.outil") });
+      outils.append(b("info", t("barre.outilInfo"), () => this.choisirOutil("info"), { actif: this.outil === "info" }), b("mesure", t("barre.outilMesure"), () => this.choisirOutil("mesure"), { actif: this.outil === "mesure" }));
       elements.push(outils);
-      elements.push(b("ajuster", "Ajuster à la carte (F)", () => this.vue().ajuster(this.docA!.boite)));
-      const unites = el("select", { class: "unites", "aria-label": "Unité", title: "Unité des mesures", onchange: (e: Event) => {
+      elements.push(b("ajuster", t("barre.ajuster"), () => this.vue().ajuster(this.docA!.boite)));
+      const unites = el("select", { class: "unites", "aria-label": t("barre.unite"), title: t("barre.uniteTitre"), onchange: (e: Event) => {
         this.unite = (e.target as HTMLSelectElement).value as Unite;
         this.majHud();
         this.afficherPanneauDroit();
         this.vue().redessiner();
-      } }, ...(["mm", "mil", "pouce"] as Unite[]).map((u) => el("option", { value: u, text: u === "pouce" ? "pouces" : u, selected: u === this.unite })));
+      } }, ...(["mm", "mil", "pouce"] as Unite[]).map((u) => el("option", { value: u, text: u === "pouce" ? t("unite.pouces") : u, selected: u === this.unite })));
       elements.push(unites);
     } else {
       elements.push(el("span", { class: "espace" }));
     }
-    elements.push(b(this.racine.dataset.theme === "clair" ? "lune" : "soleil", "Thème clair ou sombre", () => this.theme(this.racine.dataset.theme === "clair" ? "sombre" : "clair"), { classe: "discret" }));
+    elements.push(...this.finBarre(b));
     this.barre.replaceChildren(...elements.filter((x): x is HTMLElement => !!x));
   }
 
+  /** Fin de la barre : langue de l'interface, puis thème. */
+  private finBarre(b: (ic: string, titre: string, action: () => void, opts?: { texte?: string; actif?: boolean; classe?: string }) => HTMLElement): HTMLElement[] {
+    return [
+      el("select", { class: "unites langue", "aria-label": t("langue.choix"), title: t("langue.choix"), onchange: (e: Event) => this.changerLangue((e.target as HTMLSelectElement).value as Langue) },
+        ...(["fr", "en"] as Langue[]).map((l) => el("option", { value: l, text: l.toUpperCase(), title: t(l === "fr" ? "langue.fr" : "langue.en"), lang: l, selected: l === langue() }))),
+      b(this.racine.dataset.theme === "clair" ? "lune" : "soleil", t("barre.theme"), () => this.theme(this.racine.dataset.theme === "clair" ? "sombre" : "clair"), { classe: "discret" }),
+    ];
+  }
+
+  /** Textes posés une fois pour toutes dans le cadre de l'application (libellés des panneaux, pied de page). */
+  private traduireCadre() {
+    this.panneauGauche.setAttribute("aria-label", t("cadre.couches"));
+    this.panneauDroit.setAttribute("aria-label", t("cadre.informations"));
+    this.confidentialite.innerHTML = `${icone("info", 14)} `;
+    this.confidentialite.append(t("cadre.confidentialite"));
+  }
+
+  /** Change la langue de l'interface : tout est redessiné, les documents ouverts et la vue restent en place. */
+  changerLangue(l: Langue) {
+    if (l === langue()) return;
+    choisirLangue(l);
+    this.traduireCadre();
+    this.message("");
+    this.afficher();
+    this.majHud();
+  }
+
   private pastille(lettre: string, doc: DocumentTypon) {
-    return el("span", { class: `pastille-doc ${lettre ? `doc-${lettre.toLowerCase()}` : ""}`, title: `${doc.nom} — ${pluriel(doc.couches.length, "couche")}` }, lettre ? el("b", { text: lettre }) : null, el("span", { text: doc.nom }));
+    return el("span", { class: `pastille-doc ${lettre ? `doc-${lettre.toLowerCase()}` : ""}`, title: `${doc.nom} — ${t("compte.couches", { n: doc.couches.length })}` }, lettre ? el("b", { text: lettre }) : null, el("span", { text: doc.nom }));
   }
 
   private theme(t: "clair" | "sombre") {
@@ -339,38 +373,33 @@ export class App {
   }
 
   private accueil(): HTMLElement {
-    const depot = el("div", { class: "depot", tabindex: "0", role: "button", "aria-label": "Ouvrir des fichiers", onclick: async () => this.ouvrirFichiers(await this.choisirFichiers()), onkeydown: async (e: KeyboardEvent) => {
+    const depot = el("div", { class: "depot", tabindex: "0", role: "button", "aria-label": t("accueil.ouvrir"), onclick: async () => this.ouvrirFichiers(await this.choisirFichiers()), onkeydown: async (e: KeyboardEvent) => {
       if (e.key === "Enter" || e.key === " ") this.ouvrirFichiers(await this.choisirFichiers());
     } },
       el("div", { class: "depot-icone", html: icone("couches", 44) }),
-      el("p", { class: "depot-titre", text: "Déposez vos fichiers de fabrication ici" }),
-      el("p", { class: "depot-texte", text: "Gerber (RS-274X, X2, X3, et RS-274D avec sa liste d'ouvertures), perçages Excellon, fichiers de job, ODB++ (.tgz, .zip ou dossier), IPC-2581 (.xml), archives ZIP." }),
+      el("p", { class: "depot-titre", text: t("accueil.depot.titre") }),
+      el("p", { class: "depot-texte", text: t("accueil.depot.texte") }),
       el("div", { class: "depot-boutons" },
-        el("button", { type: "button", class: "bouton principal", html: `${icone("ouvrir")}<span>Choisir des fichiers</span>`, onclick: async (e: Event) => {
+        el("button", { type: "button", class: "bouton principal", html: `${icone("ouvrir")}<span>${t("accueil.choisirFichiers")}</span>`, onclick: async (e: Event) => {
           e.stopPropagation();
           this.ouvrirFichiers(await this.choisirFichiers());
         } }),
-        el("button", { type: "button", class: "bouton", html: `${icone("dossier")}<span>Choisir un dossier</span>`, onclick: async (e: Event) => {
+        el("button", { type: "button", class: "bouton", html: `${icone("dossier")}<span>${t("accueil.choisirDossier")}</span>`, onclick: async (e: Event) => {
           e.stopPropagation();
           this.ouvrirFichiers(await this.choisirFichiers(true));
         } })));
     const exemples = el("div", { class: "exemples" }, ...EXEMPLES.map((x) => el("button", { type: "button", class: "carte-exemple", onclick: () => this.lancerExemple(x.fichier) },
       el("span", { class: "carte-icone", html: icone(x.icone, 26) }),
-      el("span", { class: "carte-texte" }, el("strong", { text: x.titre }), el("span", { text: x.texte })))));
+      el("span", { class: "carte-texte" }, el("strong", { text: t(x.titre) }), el("span", { text: t(x.texte) })))));
     const atouts = el("ul", { class: "atouts" },
-      ...[
-        ["Tous les formats", "Gerber RS-274D, X1, X2 et X3, Excellon et XNC, fichiers de job, ODB++ 7 et 8, IPC-2581 A, B et C, archives ZIP et TGZ."],
-        ["Comparaison précise", "Superposition, côte à côte ou en alternance, zones de différence listées et rapport PDF."],
-        ["ODB++ et IPC-2581 lisibles", "Couches, composants, nets, nomenclature et perçages en tableaux."],
-        ["Confidentiel", "Tout est calculé dans votre navigateur par un moteur en WebAssembly : rien n'est envoyé."],
-      ].map(([t, x]) => el("li", {}, el("strong", { text: t }), el("span", { text: x }))));
+      ...(["formats", "comparaison", "odb", "confidentiel"] as const).map((a) => el("li", {}, el("strong", { text: t(`accueil.atout.${a}.titre`) }), el("span", { text: t(`accueil.atout.${a}.texte`) }))));
     return el("div", { class: "accueil" },
       el("div", { class: "accueil-contenu" },
         el("div", { class: "accueil-titre" },
-          el("h1", {}, el("span", { class: "degrade", text: "Typon" }), " : Visionneuse et comparateur de fichiers de fabrication de circuits imprimés"),
-          el("p", { class: "sous-titre", text: "Gerber, perçages, ODB++ et IPC-2581, directement dans le navigateur." })),
+          el("h1", {}, el("span", { class: "degrade", text: "Typon" }), t("accueil.h1.suite")),
+          el("p", { class: "sous-titre", text: t("accueil.sousTitre") })),
         depot,
-        el("h2", { class: "titre-exemples", text: "Pour essayer" }),
+        el("h2", { class: "titre-exemples", text: t("accueil.essayer") }),
         exemples,
         atouts));
   }
@@ -391,7 +420,7 @@ export class App {
     const v = new Vue3D(doc);
     this.vue3d = v;
     v.charger().catch((e) => {
-      this.message(`Vue 3D : ${(e as Error).message}`, "erreur");
+      this.message(t("3d.erreur", { message: tm((e as Error).message) }), "erreur");
       this.basculer3d(false);
     });
   }
@@ -408,7 +437,7 @@ export class App {
     this.afficherBarre();
     if (actif) {
       this.vue3d?.racine.focus();
-      this.message("Vue 3D : glissez pour tourner, clic droit ou Maj pour déplacer, molette pour zoomer, clic sur un composant pour ses informations.");
+      this.message(t("3d.aide"));
     } else this.vue().redessiner();
   }
 
@@ -444,7 +473,7 @@ export class App {
       return;
     }
     const doc = this.docA;
-    const prereglages = el("div", { class: "prereglages" }, ...([["dessus", "Dessus"], ["dessous", "Dessous"], ["cuivre", "Cuivre"], ["tout", "Tout"]] as const).map(([p, t]) => el("button", { type: "button", class: "puce", text: t, onclick: () => {
+    const prereglages = el("div", { class: "prereglages" }, ...(["dessus", "dessous", "cuivre", "tout"] as const).map((p) => el("button", { type: "button", class: "puce", text: t(`couches.${p}`), onclick: () => {
       doc.preregler(p);
       if (p === "dessus" || p === "dessous") this.choisirCote(p);
       this.afficherPanneauGauche();
@@ -453,31 +482,31 @@ export class App {
     } })));
     const liste = el("ul", { class: "liste-couches" });
     for (const c of this.ordre(doc.couches)) liste.append(this.ligneCouche(c));
-    this.panneauGauche.replaceChildren(el("div", { class: "titre-panneau" }, el("h2", { html: `${icone("couches", 16)} Couches` }), el("span", { class: "compte", text: String(doc.couches.length) })), prereglages, liste);
+    this.panneauGauche.replaceChildren(el("div", { class: "titre-panneau" }, el("h2", { html: `${icone("couches", 16)} ${t("couches.titre")}` }), el("span", { class: "compte", text: String(doc.couches.length) })), prereglages, liste);
   }
 
   private ligneCouche(c: EtatCouche): HTMLElement {
     const vide = c.desc.objets === 0;
-    const oeil = el("button", { type: "button", class: `oeil ${c.visible ? "visible" : ""}`, "aria-pressed": String(c.visible), title: c.visible ? "Masquer" : "Afficher", html: icone(c.visible ? "oeil" : "oeilFerme", 16), onclick: () => {
+    const oeil = el("button", { type: "button", class: `oeil ${c.visible ? "visible" : ""}`, "aria-pressed": String(c.visible), title: c.visible ? t("couches.masquer") : t("couches.afficher"), html: icone(c.visible ? "oeil" : "oeilFerme", 16), onclick: () => {
       c.visible = !c.visible;
       this.chargerVisibles();
       this.afficherPanneauGauche();
       this.vue().redessiner();
     } });
-    const pastille = el("input", { type: "color", class: "pastille-couleur", value: c.couleur, title: "Couleur de la couche", "aria-label": `Couleur de ${c.desc.nom}` });
+    const pastille = el("input", { type: "color", class: "pastille-couleur", value: c.couleur, title: t("couches.couleur"), "aria-label": t("couches.couleurDe", { nom: tm(c.desc.nom) }) });
     pastille.addEventListener("input", () => {
       c.couleur = pastille.value;
       this.vue().redessiner();
     });
-    const opacite = el("input", { type: "range", min: "0.1", max: "1", step: "0.05", value: String(c.opacite), class: "opacite", title: "Opacité", "aria-label": `Opacité de ${c.desc.nom}` });
+    const opacite = el("input", { type: "range", min: "0.1", max: "1", step: "0.05", value: String(c.opacite), class: "opacite", title: t("couches.opacite"), "aria-label": t("couches.opaciteDe", { nom: tm(c.desc.nom) }) });
     opacite.addEventListener("input", () => {
       c.opacite = Number(opacite.value);
       this.vue().redessiner();
     });
-    const nom = el("button", { type: "button", class: "nom-couche", title: `${c.desc.fichier}\n${pluriel(c.desc.objets, "objet")} — cliquez pour les détails`, onclick: () => {
+    const nom = el("button", { type: "button", class: "nom-couche", title: t("couches.details", { fichier: c.desc.fichier, objets: t("compte.objets", { n: c.desc.objets }) }), onclick: () => {
       this.ongletActif = `couche:${c.desc.id}`;
       this.afficherPanneauDroit();
-    } }, el("span", { class: "libelle", text: c.desc.nom }), el("span", { class: "fichier", text: vide ? "vide" : c.desc.fichier.split("/").pop()! }));
+    } }, el("span", { class: "libelle", text: tm(c.desc.nom) }), el("span", { class: "fichier", text: vide ? t("couches.vide") : c.desc.fichier.split("/").pop()! }));
     return el("li", { class: `couche ${c.visible ? "" : "masquee"} ${vide ? "vide" : ""}`, style: { "--couleur": c.couleur } as Partial<CSSStyleDeclaration> }, oeil, pastille, nom, opacite);
   }
 
@@ -486,7 +515,7 @@ export class App {
     for (const d of docs) {
       for (const c of d.couches) {
         if (c.visible && !c.gpu) {
-          d.gpu(this.vue().rendu, c).then(() => this.vue().redessiner(), (e) => this.message(`Couche « ${c.desc.nom} » : ${(e as Error).message}`, "erreur"));
+          d.gpu(this.vue().rendu, c).then(() => this.vue().redessiner(), (e) => this.message(t("etat.erreurCouche", { nom: tm(c.desc.nom), message: tm((e as Error).message) }), "erreur"));
         }
       }
     }
@@ -513,7 +542,7 @@ export class App {
     this.vue().racine.classList.toggle("outil-mesure", o === "mesure");
     this.afficherBarre();
     this.vue().redessiner();
-    if (o === "mesure") this.message("Mesure : cliquez sur deux points de la carte.");
+    if (o === "mesure") this.message(t("etat.mesure"));
   }
 
   /* --- Scènes --------------------------------------------------------------------------------------------------- */
@@ -654,7 +683,7 @@ export class App {
     ctx.stroke();
     ctx.font = `500 ${11 * r}px Inter Variable, system-ui, sans-serif`;
     ctx.textAlign = "center";
-    ctx.fillText(`${nombre(pas, 4)} ${this.unite === "pouce" ? "po" : this.unite}`, x + w / 2, y - 8 * r);
+    ctx.fillText(`${nombre(pas, 4)} ${this.unite === "pouce" ? t("unite.po") : this.unite}`, x + w / 2, y - 8 * r);
     ctx.textAlign = "start";
   }
 
@@ -735,16 +764,16 @@ export class App {
     const doc = this.docA;
     const liste: Onglet[] = [];
     if (this.comparaison) {
-      liste.push({ id: "differences", titre: "Différences", icone: "comparer", compte: this.comparaison.paires[this.comparaison.choisie]?.zones.length, contenu: () => this.panneauDifferences() });
+      liste.push({ id: "differences", titre: t("onglet.differences"), icone: "comparer", compte: this.comparaison.paires[this.comparaison.choisie]?.zones.length, contenu: () => this.panneauDifferences() });
     }
-    liste.push({ id: "inspecteur", titre: "Inspecteur", icone: "info", contenu: () => this.inspecteur() });
-    liste.push({ id: "carte", titre: "Carte", icone: "carte", contenu: () => resume(doc, this.unite) });
-    liste.push({ id: "fichiers", titre: "Fichiers", icone: "fichier", compte: doc.couches.length, contenu: () => this.panneauFichiers(doc) });
+    liste.push({ id: "inspecteur", titre: t("onglet.inspecteur"), icone: "info", contenu: () => this.inspecteur() });
+    liste.push({ id: "carte", titre: t("onglet.carte"), icone: "carte", contenu: () => resume(doc, this.unite) });
+    liste.push({ id: "fichiers", titre: t("onglet.fichiers"), icone: "fichier", compte: doc.couches.length, contenu: () => this.panneauFichiers(doc) });
     liste.push(...onglets(doc, this.unite, (x, y) => this.allerA(x, y)));
     if (this.ongletActif.startsWith("couche:")) {
       const id = Number(this.ongletActif.slice(7));
       const c = doc.couches.find((x) => x.desc.id === id);
-      if (c) liste.push({ id: this.ongletActif, titre: c.desc.nom, icone: "couches", contenu: () => detailsCouche(c.desc, this.unite, doc.nom) });
+      if (c) liste.push({ id: this.ongletActif, titre: tm(c.desc.nom), icone: "couches", contenu: () => detailsCouche(c.desc, this.unite, doc.nom) });
     }
     if (!liste.some((o) => o.id === this.ongletActif)) this.ongletActif = this.comparaison ? "differences" : "carte";
     const actif = liste.find((o) => o.id === this.ongletActif)!;
@@ -752,7 +781,7 @@ export class App {
       this.ongletActif = o.id;
       this.afficherPanneauDroit();
     }, html: `${icone(o.icone, 16)}<span>${o.titre}</span>${o.compte ? `<em>${nombre(o.compte, 0)}</em>` : ""}` })));
-    const titre = actif.id.startsWith("couche:") ? el("div", { class: "titre-panneau" }, el("button", { type: "button", class: "bouton discret", html: icone("gauche", 16), title: "Retour", onclick: () => {
+    const titre = actif.id.startsWith("couche:") ? el("div", { class: "titre-panneau" }, el("button", { type: "button", class: "bouton discret", html: icone("gauche", 16), title: t("onglet.retour"), onclick: () => {
       this.ongletActif = "fichiers";
       this.afficherPanneauDroit();
     } }), el("h2", { text: actif.titre })) : null;
@@ -762,16 +791,16 @@ export class App {
   private inspecteur(): HTMLElement {
     const s = this.selection;
     if (!s) {
-      return el("div", { class: "invite" }, el("div", { class: "invite-icone", html: icone("info", 36) }), el("p", { text: "Cliquez sur un élément de la carte (piste, pastille, zone, perçage, composant) pour voir ses informations : ouverture, net, composant, broche, attributs." }), el("p", { class: "discret", text: "Raccourcis : F ajuster, B retourner la carte, M mesurer, Échap effacer." }));
+      return el("div", { class: "invite" }, el("div", { class: "invite-icone", html: icone("info", 36) }), el("p", { text: t("inspecteur.invite") }), el("p", { class: "discret", text: t("inspecteur.raccourcis") }));
     }
     const b = s.objet.boite;
     const dl = el("dl", { class: "definitions" });
-    dl.append(el("dt", { text: "Couche" }), el("dd", { text: s.couche.desc.nom }));
-    if (this.comparaison) dl.append(el("dt", { text: "Version" }), el("dd", { text: s.doc === this.docB ? "B" : "A" }));
-    for (const [k, v] of s.objet.info) dl.append(el("dt", { text: k }), el("dd", { text: v }));
-    dl.append(el("dt", { text: "Centre" }), el("dd", { text: `X ${longueur((b[0] + b[2]) / 2, this.unite)} ; Y ${longueur((b[1] + b[3]) / 2, this.unite)}` }));
-    dl.append(el("dt", { text: "Encombrement" }), el("dd", { text: `${longueur(b[2] - b[0], this.unite)} × ${longueur(b[3] - b[1], this.unite)}` }));
-    return el("div", {}, el("section", { class: "bloc" }, el("h3", { text: "Objet sélectionné" }), dl));
+    dl.append(el("dt", { text: t("inspecteur.couche") }), el("dd", { text: tm(s.couche.desc.nom) }));
+    if (this.comparaison) dl.append(el("dt", { text: t("inspecteur.version") }), el("dd", { text: s.doc === this.docB ? "B" : "A" }));
+    for (const [k, v] of s.objet.info) dl.append(el("dt", { text: tm(k) }), el("dd", { text: tm(v) }));
+    dl.append(el("dt", { text: t("inspecteur.centre") }), el("dd", { text: t("inspecteur.position", { x: longueur((b[0] + b[2]) / 2, this.unite), y: longueur((b[1] + b[3]) / 2, this.unite) }) }));
+    dl.append(el("dt", { text: t("inspecteur.encombrement") }), el("dd", { text: `${longueur(b[2] - b[0], this.unite)} × ${longueur(b[3] - b[1], this.unite)}` }));
+    return el("div", {}, el("section", { class: "bloc" }, el("h3", { text: t("inspecteur.objet") }), dl));
   }
 
   private panneauFichiers(doc: DocumentTypon): HTMLElement {
@@ -780,10 +809,10 @@ export class App {
       ul.append(el("li", {}, el("button", { type: "button", onclick: () => {
         this.ongletActif = `couche:${c.desc.id}`;
         this.afficherPanneauDroit();
-      } }, el("span", { class: "puce-couleur", style: { background: c.couleur } }), el("span", { class: "fichier-nom" }, el("strong", { text: c.desc.nom }), el("span", { text: `${c.desc.fichier.split("/").pop()} · ${c.desc.meta.format ?? c.desc.format}${c.desc.meta.alertes?.length ? " · ⚠" : ""}` })), el("span", { class: "fichier-compte", text: nombre(c.desc.objets, 0) }))));
+      } }, el("span", { class: "puce-couleur", style: { background: c.couleur } }), el("span", { class: "fichier-nom" }, el("strong", { text: tm(c.desc.nom) }), el("span", { text: `${c.desc.fichier.split("/").pop()} · ${c.desc.meta.format ?? c.desc.format}${c.desc.meta.alertes?.length ? " · ⚠" : ""}` })), el("span", { class: "fichier-compte", text: nombre(c.desc.objets, 0) }))));
     }
-    const csv = el("div", { class: "barre-tableau" }, el("span", { class: "compte", text: pluriel(doc.couches.length, "couche") }), boutonCsv(doc.nom, "fichiers", () => csvFichiers(this.ordre(doc.couches))));
-    return el("div", {}, el("p", { class: "discret", text: "Cliquez sur une couche pour voir son format, ses attributs X2, ses ouvertures ou ses outils." }), csv, ul);
+    const csv = el("div", { class: "barre-tableau" }, el("span", { class: "compte", text: t("fichiers.compte", { n: doc.couches.length }) }), boutonCsv(doc.nom, "fichiers", () => csvFichiers(this.ordre(doc.couches))));
+    return el("div", {}, el("p", { class: "discret", text: t("fichiers.aide") }), csv, ul);
   }
 
   /* --- Comparaison ------------------------------------------------------------------------------------------------ */
@@ -816,7 +845,7 @@ export class App {
     let n = 0;
     for (const p of ordre) {
       if (this.comparaison !== cmp) return;
-      this.message(`Recherche des différences : ${p.libelle} (${++n} sur ${ordre.length})…`);
+      this.message(t("etat.recherche", { libelle: tm(p.libelle), i: ++n, total: ordre.length }));
       try {
         await analyser(this.vue().rendu, a, b, p, cmp.aligner ? cmp.decalage : { dx: 0, dy: 0 }, cmp.tolerance);
       } catch (e) {
@@ -829,11 +858,13 @@ export class App {
       this.vue().redessiner();
     }
     cmp.analyse = false;
+    // Le bouton du rapport PDF, désactivé pendant l'analyse, redevient utilisable.
+    this.afficherPanneauDroit();
     const avec = cmp.paires.filter((p) => p.etat === "differences");
     const seules = cmp.paires.filter((p) => p.etat === "seulement-a" || p.etat === "seulement-b");
     this.message(avec.length || seules.length
-      ? `${pluriel(avec.length, "couche")} avec des différences${seules.length ? `, ${pluriel(seules.length, "couche")} présente${seules.length > 1 ? "s" : ""} dans une seule version` : ""}.`
-      : "Aucune différence : les deux versions sont identiques (à la tolérance près).", avec.length || seules.length ? "info" : "succes");
+      ? `${t("etat.bilan.differences", { n: avec.length })}${seules.length ? t("etat.bilan.seules", { n: seules.length }) : ""}.`
+      : t("etat.aucuneDifference"), avec.length || seules.length ? "info" : "succes");
     this.chargerVisibles();
   }
 
@@ -841,20 +872,20 @@ export class App {
     const cmp = this.comparaison!;
     const ul = el("ul", { class: "liste-couches paires" });
     if (!this.docB) {
-      return el("div", { class: "invite", "data-depot": "B" }, el("div", { class: "invite-icone", html: icone("comparer", 36) }), el("p", { text: "Déposez ici la version B (nouvelle version) : Gerber, archive ZIP, ODB++ ou IPC-2581. Elle peut être dans un autre format que la version A." }), el("button", { type: "button", class: "bouton principal", html: `${icone("ouvrir")}<span>Choisir la version B</span>`, onclick: async () => this.ouvrirFichiers(await this.choisirFichiers(), "B") }));
+      return el("div", { class: "invite", "data-depot": "B" }, el("div", { class: "invite-icone", html: icone("comparer", 36) }), el("p", { text: t("cmp.deposerB") }), el("button", { type: "button", class: "bouton principal", html: `${icone("ouvrir")}<span>${t("cmp.choisirB")}</span>`, onclick: async () => this.ouvrirFichiers(await this.choisirFichiers(), "B") }));
     }
     cmp.paires.forEach((p, i) => {
       const ref = (p.a ?? p.b)!;
       const badge = {
-        "a-analyser": ["attente", "…"],
-        analyse: ["attente", "analyse…"],
-        identique: ["ok", "identique"],
-        differences: ["diff", pluriel(p.zones.length, "zone")],
-        "seulement-a": ["seul", "seulement A"],
-        "seulement-b": ["seul", "seulement B"],
-        representation: ["seul", "voir la liste"],
+        "a-analyser": ["attente", t("cmp.badge.attente")],
+        analyse: ["attente", t("cmp.badge.analyse")],
+        identique: ["ok", t("cmp.badge.identique")],
+        differences: ["diff", t("compte.zones", { n: p.zones.length })],
+        "seulement-a": ["seul", t("cmp.badge.seulementA")],
+        "seulement-b": ["seul", t("cmp.badge.seulementB")],
+        representation: ["seul", t("cmp.badge.representation")],
       }[p.etat];
-      const oeil = el("button", { type: "button", class: `oeil ${ref.visible ? "visible" : ""}`, "aria-pressed": String(ref.visible), title: "Afficher en côte à côte et en alternance", html: icone(ref.visible ? "oeil" : "oeilFerme", 16), onclick: (e: Event) => {
+      const oeil = el("button", { type: "button", class: `oeil ${ref.visible ? "visible" : ""}`, "aria-pressed": String(ref.visible), title: t("cmp.oeil"), html: icone(ref.visible ? "oeil" : "oeilFerme", 16), onclick: (e: Event) => {
         e.stopPropagation();
         const v = !ref.visible;
         if (p.a) p.a.visible = v;
@@ -865,8 +896,8 @@ export class App {
       } });
       ul.append(el("li", { class: `couche paire ${i === cmp.choisie ? "choisie" : ""} etat-${p.etat}`, style: { "--couleur": ref.couleur } as Partial<CSSStyleDeclaration> },
         oeil,
-        el("button", { type: "button", class: "nom-couche", onclick: () => this.choisirPaire(i), title: `A : ${p.a?.desc.fichier ?? "—"}\nB : ${p.b?.desc.fichier ?? "—"}` },
-          el("span", { class: "libelle", text: p.libelle }),
+        el("button", { type: "button", class: "nom-couche", onclick: () => this.choisirPaire(i), title: t("cmp.fichiersAB", { a: p.a?.desc.fichier ?? "—", b: p.b?.desc.fichier ?? "—" }) },
+          el("span", { class: "libelle", text: tm(p.libelle) }),
           el("span", { class: "fichier", text: `${p.a?.desc.format ?? "—"} / ${p.b?.desc.format ?? "—"}` })),
         el("span", { class: `badge ${badge[0]}`, text: badge[1] })));
     });
@@ -874,14 +905,14 @@ export class App {
     const aligner = el("label", { class: "case" }, el("input", { type: "checkbox", checked: cmp.aligner, onchange: (e: Event) => {
       cmp.aligner = (e.target as HTMLInputElement).checked;
       this.relancerAnalyse();
-    } }), el("span", { text: cmp.decalage.dx || cmp.decalage.dy ? `Aligner les origines (B décalée de ${longueur(cmp.decalage.dx, this.unite, 3)} ; ${longueur(cmp.decalage.dy, this.unite, 3)})` : "Aligner les origines (identiques)" }));
+    } }), el("span", { text: cmp.decalage.dx || cmp.decalage.dy ? t("cmp.alignerDecale", { dx: longueur(cmp.decalage.dx, this.unite, 3), dy: longueur(cmp.decalage.dy, this.unite, 3) }) : t("cmp.alignerIdentiques") }));
     if (!(cmp.decalage.dx || cmp.decalage.dy)) aligner.querySelector("input")!.disabled = true;
-    const tolerance = el("label", { class: "champ" }, el("span", { text: "Ignorer les écarts de moins de" }), el("select", { onchange: (e: Event) => {
+    const tolerance = el("label", { class: "champ" }, el("span", { text: t("cmp.tolerance") }), el("select", { onchange: (e: Event) => {
       cmp.tolerance = Number((e.target as HTMLSelectElement).value);
       this.relancerAnalyse();
-    } }, ...[0, 0.01, 0.02, 0.05, 0.1, 0.2].map((t) => el("option", { value: String(t), text: t ? longueur(t, this.unite, 3) : "rien (exact)", selected: t === cmp.tolerance }))));
+    } }, ...[0, 0.01, 0.02, 0.05, 0.1, 0.2].map((v) => el("option", { value: String(v), text: v ? longueur(v, this.unite, 3) : t("cmp.toleranceAucune"), selected: v === cmp.tolerance }))));
     reglages.append(aligner, tolerance);
-    return el("div", {}, el("div", { class: "titre-panneau" }, el("h2", { html: `${icone("comparer", 16)} Couches comparées` }), el("span", { class: "compte", text: String(cmp.paires.length) }), boutonCsv(this.nomComparaison(), "couches comparées", () => csvPaires(cmp.paires))), ul, reglages);
+    return el("div", {}, el("div", { class: "titre-panneau" }, el("h2", { html: `${icone("comparer", 16)} ${t("cmp.couchesComparees")}` }), el("span", { class: "compte", text: String(cmp.paires.length) }), boutonCsv(this.nomComparaison(), "couches comparées", () => csvPaires(cmp.paires))), ul, reglages);
   }
 
   private relancerAnalyse() {
@@ -942,51 +973,51 @@ export class App {
     const cmp = this.comparaison!;
     const p = cmp.paires[cmp.choisie];
     const racine = el("div");
-    if (!this.docB) return el("p", { class: "vide", text: "Ouvrez la version B pour lancer la comparaison." });
+    if (!this.docB) return el("p", { class: "vide", text: t("cmp.ouvrirB") });
     racine.append(el("div", { class: "legende" },
-      el("span", {}, el("i", { style: { background: "#ff4545" } }), "Seulement dans A (disparu)"),
-      el("span", {}, el("i", { style: { background: "#40eb73" } }), "Seulement dans B (apparu)"),
-      el("span", {}, el("i", { style: { background: "#7f8c9e" } }), "Commun")));
+      el("span", {}, el("i", { style: { background: "#ff4545" } }), t("cmp.legende.a")),
+      el("span", {}, el("i", { style: { background: "#40eb73" } }), t("cmp.legende.b")),
+      el("span", {}, el("i", { style: { background: "#7f8c9e" } }), t("cmp.legende.commun"))));
     const actions = el("div", { class: "actions-differences" },
-      el("button", { type: "button", class: "bouton principal", html: `${icone("pdf")}<span>Rapport PDF</span>`, onclick: () => this.rapport(), disabled: cmp.analyse }));
+      el("button", { type: "button", class: "bouton principal", html: `${icone("pdf")}<span>${t("cmp.rapport")}</span>`, onclick: () => this.rapport(), disabled: cmp.analyse }));
     racine.append(actions);
     if (!p) return racine;
-    racine.append(el("h3", { class: "titre-paire", text: p.libelle }));
+    racine.append(el("h3", { class: "titre-paire", text: tm(p.libelle) }));
     if (p.etat === "representation") {
-      racine.append(el("p", { class: "vide", text: "Les deux versions représentent les composants différemment (points du Gerber X3, contours des boîtiers en ODB++ ou IPC-2581) : leur dessin n'est pas comparable. La comparaison de la liste des composants est ci-dessous." }));
+      racine.append(el("p", { class: "vide", text: t("cmp.representation") }));
       racine.append(this.differencesComposants());
       return racine;
     }
     if (p.etat === "seulement-a" || p.etat === "seulement-b") {
-      racine.append(el("p", { class: "vide", text: p.etat === "seulement-a" ? "Cette couche n'existe que dans la version A." : "Cette couche n'existe que dans la version B." }));
+      racine.append(el("p", { class: "vide", text: p.etat === "seulement-a" ? t("cmp.seulementA") : t("cmp.seulementB") }));
       return racine;
     }
     if (p.etat === "analyse" || p.etat === "a-analyser") {
-      racine.append(el("p", { class: "vide", text: "Recherche des différences…" }));
+      racine.append(el("p", { class: "vide", text: t("cmp.recherche") }));
       return racine;
     }
     if (p.etat === "identique") {
-      racine.append(el("div", { class: "identique", html: `${icone("info", 18)}<span>Aucune différence sur cette couche${cmp.tolerance ? ` (écarts de moins de ${longueur(cmp.tolerance, this.unite, 3)} ignorés)` : ""}.</span>` }));
+      racine.append(el("div", { class: "identique", html: icone("info", 18) }, el("span", { text: t("cmp.identique", { tolerance: cmp.tolerance ? t("cmp.identiqueTolerance", { t: longueur(cmp.tolerance, this.unite, 3) }) : "" }) })));
       return racine;
     }
     const nav = el("div", { class: "nav-zones" },
-      el("button", { type: "button", class: "bouton", html: `${icone("gauche", 16)}<span>Précédente</span>`, title: "Zone précédente (P)", onclick: () => this.allerZone(cmp.zone - 1) }),
-      el("span", { text: cmp.zone >= 0 ? `Zone ${cmp.zone + 1} sur ${p.zones.length}` : pluriel(p.zones.length, "zone") }),
-      el("button", { type: "button", class: "bouton", html: `<span>Suivante</span>${icone("droite", 16)}`, title: "Zone suivante (N)", onclick: () => this.allerZone(cmp.zone + 1) }));
+      el("button", { type: "button", class: "bouton", html: `${icone("gauche", 16)}<span>${t("cmp.precedente")}</span>`, title: t("cmp.zonePrecedente"), onclick: () => this.allerZone(cmp.zone - 1) }),
+      el("span", { text: cmp.zone >= 0 ? t("cmp.zoneSur", { i: cmp.zone + 1, n: p.zones.length }) : t("compte.zones", { n: p.zones.length }) }),
+      el("button", { type: "button", class: "bouton", html: `<span>${t("cmp.suivante")}</span>${icone("droite", 16)}`, title: t("cmp.zoneSuivante"), onclick: () => this.allerZone(cmp.zone + 1) }));
     racine.append(nav);
     const ul = el("ol", { class: "liste-zones" });
     p.zones.forEach((z: ZoneMm, i) => {
       const genre = z.disparu > 0 && z.apparu > 0 ? "modifié" : z.disparu > 0 ? "disparu" : "apparu";
       ul.append(el("li", { class: i === cmp.zone ? "courante" : "" }, el("button", { type: "button", onclick: () => this.allerZone(i) },
         el("span", { class: "numero", text: String(i + 1) }),
-        el("span", { class: `genre ${genre}`, text: genre }),
+        el("span", { class: `genre ${genre}`, text: t(`cmp.genre.${genre}`) }),
         el("span", { class: "position", text: `X ${longueur((z.x0 + z.x1) / 2, this.unite, 2)} · Y ${longueur((z.y0 + z.y1) / 2, this.unite, 2)}` }),
         el("span", { class: "dimension", text: `${longueur(z.x1 - z.x0, this.unite, 2)} × ${longueur(z.y1 - z.y0, this.unite, 2)}` }))));
     });
     racine.append(ul);
     racine.querySelector(".titre-paire")!.append(boutonCsv(this.nomComparaison(), `zones ${p.libelle}`, () => csvZones(p, this.unite)));
     racine.querySelector(".titre-paire")!.classList.add("titre-avec-csv");
-    if (p.resolution) racine.append(el("p", { class: "discret", text: `Comparaison au pas de ${longueur(p.resolution, this.unite, 3)}.` }));
+    if (p.resolution) racine.append(el("p", { class: "discret", text: t("cmp.pas", { pas: longueur(p.resolution, this.unite, 3) }) }));
     racine.append(this.differencesComposants());
     return racine;
   }
@@ -995,33 +1026,33 @@ export class App {
   private differencesComposants(): HTMLElement {
     const ca = this.docA?.description.meta.composants ?? [];
     const cb = this.docB?.description.meta.composants ?? [];
-    const bloc = el("section", { class: "bloc composants-differences" }, el("h3", { text: "Composants" }));
+    const bloc = el("section", { class: "bloc composants-differences" }, el("h3", { text: t("cmp.composants") }));
     if (!ca.length && !cb.length) {
-      bloc.append(el("p", { class: "discret", text: "Aucune liste de composants (ni Gerber X3, ni ODB++)." }));
+      bloc.append(el("p", { class: "discret", text: t("cmp.composants.aucuneListe") }));
       return bloc;
     }
     if (!ca.length || !cb.length) {
-      bloc.append(el("p", { class: "discret", text: `Seule la version ${ca.length ? "A" : "B"} contient la liste des composants.` }));
+      bloc.append(el("p", { class: "discret", text: t("cmp.composants.seule", { v: ca.length ? "A" : "B" }) }));
       return bloc;
     }
     const d = comparerComposants(ca, cb, this.comparaison?.aligner ? this.comparaison.decalage : { dx: 0, dy: 0 });
     if (!d.ajoutes.length && !d.retires.length && !d.modifies.length) {
-      bloc.append(el("div", { class: "identique" }, el("span", { html: icone("info", 18) }), el("span", { text: `Les ${nombre(d.communs, 0)} composants sont identiques.` })));
+      bloc.append(el("div", { class: "identique" }, el("span", { html: icone("info", 18) }), el("span", { text: t("cmp.composants.identiques", { n: nombre(d.communs, 0) }) })));
       return bloc;
     }
-    const ligne = (genre: string, ref: string, texte: string, x?: number, y?: number) => el("li", {}, el("button", { type: "button", disabled: x === undefined, onclick: () => x !== undefined && this.allerA(x, y!, 4) },
-      el("span", { class: `genre ${genre}`, text: genre }), el("strong", { text: ref }), el("span", { text: texte })));
+    const ligne = (genre: "disparu" | "apparu" | "modifié", ref: string, texte: string, x?: number, y?: number) => el("li", {}, el("button", { type: "button", disabled: x === undefined, onclick: () => x !== undefined && this.allerA(x, y!, 4) },
+      el("span", { class: `genre ${genre}`, text: t(`cmp.genre.${genre}`) }), el("strong", { text: ref }), el("span", { text: texte })));
     const ul = el("ul", { class: "liste-composants" });
     for (const c of d.retires) ul.append(ligne("disparu", c.reference, [c.valeur, c.boitier].filter(Boolean).join(" · "), c.x, c.y));
     for (const c of d.ajoutes) ul.append(ligne("apparu", c.reference, [c.valeur, c.boitier].filter(Boolean).join(" · "), c.x, c.y));
     for (const m of d.modifies) {
       const c = cb.find((x) => x.reference === m.reference);
-      ul.append(ligne("modifié", m.reference, m.changements.join(" ; "), c?.x, c?.y));
+      ul.append(ligne("modifié", m.reference, m.changements.join(t("cmp.changement.separateur")), c?.x, c?.y));
     }
     const h3 = bloc.querySelector("h3")!;
     h3.classList.add("titre-avec-csv");
     h3.append(boutonCsv(this.nomComparaison(), "différences de composants", () => csvDifferencesComposants(d, cb)));
-    bloc.append(el("p", { class: "discret", text: `${pluriel(d.ajoutes.length, "ajouté")}, ${pluriel(d.retires.length, "retiré")}, ${pluriel(d.modifies.length, "modifié")}, ${pluriel(d.communs - d.modifies.length, "inchangé")}.` }), ul);
+    bloc.append(el("p", { class: "discret", text: `${t("cmp.composants.ajoutes", { n: d.ajoutes.length })}, ${t("cmp.composants.retires", { n: d.retires.length })}, ${t("cmp.composants.modifies", { n: d.modifies.length })}, ${t("cmp.composants.inchanges", { n: d.communs - d.modifies.length })}.` }), ul);
     return bloc;
   }
 
@@ -1034,9 +1065,9 @@ export class App {
     const cmp = this.comparaison;
     if (!cmp || !this.docA || !this.docB) return;
     const { rapportPdf } = await import("./rapport");
-    await this.attendre("Préparation du rapport PDF…", () => rapportPdf({ a: this.docA!, b: this.docB!, paires: cmp.paires, decalage: cmp.aligner ? cmp.decalage : { dx: 0, dy: 0 }, tolerance: cmp.tolerance, unite: this.unite, rendu: this.vue().rendu }));
+    await this.attendre(t("etat.preparationRapport"), () => rapportPdf({ a: this.docA!, b: this.docB!, paires: cmp.paires, decalage: cmp.aligner ? cmp.decalage : { dx: 0, dy: 0 }, tolerance: cmp.tolerance, unite: this.unite, rendu: this.vue().rendu }));
     this.vue().redessiner();
-    this.message("Rapport PDF enregistré (dossier des téléchargements).", "succes");
+    this.message(t("etat.rapportEnregistre"), "succes");
   }
 }
 

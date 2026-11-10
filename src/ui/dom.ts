@@ -1,4 +1,5 @@
 /** Petits utilitaires d'interface. */
+import { locale, t } from "../i18n";
 
 type Attributs = Record<string, unknown> & { class?: string; text?: string; html?: string; style?: Partial<CSSStyleDeclaration> };
 
@@ -18,10 +19,10 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attribu
   return e;
 }
 
-/** Nombre à la française : virgule décimale, espace fine pour les milliers. */
+/** Nombre selon la langue : en français, virgule décimale et espace fine pour les milliers. */
 export function nombre(v: number, decimales = 2): string {
   if (!Number.isFinite(v)) return "—";
-  return v.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: decimales });
+  return v.toLocaleString(locale(), { minimumFractionDigits: 0, maximumFractionDigits: decimales });
 }
 
 export type Unite = "mm" | "mil" | "pouce";
@@ -29,7 +30,7 @@ export type Unite = "mm" | "mil" | "pouce";
 /** Longueur (en mm) dans l'unité choisie. */
 export function longueur(mm: number, unite: Unite, decimales?: number): string {
   if (unite === "mil") return `${nombre(mm / 0.0254, decimales ?? 1)} mil`;
-  if (unite === "pouce") return `${nombre(mm / 25.4, decimales ?? 4)} po`;
+  if (unite === "pouce") return `${nombre(mm / 25.4, decimales ?? 4)} ${t("unite.po")}`;
   return `${nombre(mm, decimales ?? 3)} mm`;
 }
 
@@ -38,9 +39,9 @@ export function pluriel(n: number, mot: string, motPluriel?: string): string {
 }
 
 export function taille(octets: number): string {
-  if (octets < 1024) return `${octets} o`;
-  if (octets < 1024 * 1024) return `${nombre(octets / 1024, 0)} Ko`;
-  return `${nombre(octets / 1024 / 1024, 1)} Mo`;
+  if (octets < 1024) return `${octets} ${t("unite.o")}`;
+  if (octets < 1024 * 1024) return `${nombre(octets / 1024, 0)} ${t("unite.ko")}`;
+  return `${nombre(octets / 1024 / 1024, 1)} ${t("unite.mo")}`;
 }
 
 /** Télécharge des octets sous un nom de fichier. */

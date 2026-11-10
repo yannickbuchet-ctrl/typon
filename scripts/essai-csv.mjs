@@ -128,7 +128,7 @@ try {
   const page = await contexte.newPage();
   page.on("pageerror", (e) => erreurs.push(`page : ${e.message}`));
   await page.goto(`http://localhost:${PORT}/`);
-  await page.getByText("Vos typons,").waitFor();
+  await page.getByText("Visionneuse et comparateur de fichiers de fabrication").waitFor();
 
   // Carte d'exemple en Gerber X2/X3
   await page.getByRole("button", { name: /Carte d'exemple/ }).click();

@@ -12,6 +12,8 @@ import { moteur, type Composant, type Geometrie } from "../moteur/client";
 import { Rendu, type CoucheAffichee, type CoucheGpu } from "../rendu/rendu";
 import type { DocumentTypon } from "./document";
 import { el, nombre } from "./dom";
+import { t } from "../i18n";
+import { traduireMoteur as tm } from "../i18n-moteur";
 
 type Mat4 = Float32Array;
 type Vec3 = [number, number, number];
@@ -303,7 +305,7 @@ export class Vue3D {
       x1 = Math.max(x1, x);
       y1 = Math.max(y1, y);
     }
-    if (!(x1 > x0 && y1 > y0)) throw new Error("Impossible de trouver le contour de la carte.");
+    if (!(x1 > x0 && y1 > y0)) throw new Error(t("3d.contourIntrouvable"));
     this.boite = [x0, y0, x1, y1];
     const m = 0.5;
     const cx0 = x0 - m, cy0 = y0 - m, cw = x1 - x0 + 2 * m, ch = y1 - y0 + 2 * m;
@@ -417,13 +419,13 @@ export class Vue3D {
     for (const b of this.boitiers) inst.push(b.cx, b.cy, b.angle, b.z0, b.sx, b.sy, b.h, 0, ...couleurBoitier(b.composant.reference));
     this.vaoBoites = this.vao([[this.tampon(CUBE), [[0, 3], [1, 3]], 6, 0], [this.tampon(new Float32Array(inst.length ? inst : new Array(11).fill(0))), [[2, 4], [3, 4], [4, 3]], 11, 1]]);
 
-    const source = meta.epaisseur ? `épaisseur ${nombre(e, 2)} mm (${meta.epaisseur.source})` : "épaisseur 1,6 mm (par défaut : le fichier ne la donne pas)";
+    const source = meta.epaisseur ? t("3d.epaisseur", { e: nombre(e, 2), source: meta.epaisseur.source === "fichier de job" ? t("3d.sourceJob") : tm(meta.epaisseur.source) }) : t("3d.epaisseurDefaut");
     const sans = (meta.composants ?? []).length - this.boitiers.length;
     this.legende.replaceChildren(...[
       el("span", { text: source }),
-      modele.source === "rectangle" ? el("span", { text: "Pas de contour fermé : rectangle englobant." }) : null,
-      this.boitiers.length ? el("span", { text: `${this.boitiers.length} boîtier${this.boitiers.length > 1 ? "s" : ""}${sans > 0 ? ` (${sans} non représenté${sans > 1 ? "s" : ""} : sans empreinte, trou de fixation, mire…)` : ""}` }) : (meta.composants?.length ? el("span", { text: "Composants sans empreinte : boîtiers non affichés." }) : null),
-      el("span", { class: "aide", text: "Glisser : tourner · clic droit ou Maj : déplacer · molette : zoom · F : recadrer" }),
+      modele.source === "rectangle" ? el("span", { text: t("3d.rectangle") }) : null,
+      this.boitiers.length ? el("span", { text: `${t("3d.boitiers", { n: this.boitiers.length })}${sans > 0 ? t("3d.nonRepresentes", { n: sans }) : ""}` }) : (meta.composants?.length ? el("span", { text: t("3d.sansEmpreinte") }) : null),
+      el("span", { class: "aide", text: t("3d.aideCourte") }),
     ].filter((x): x is HTMLSpanElement => !!x));
     this.pret = true;
     this.recadrer();
@@ -657,7 +659,7 @@ export class Vue3D {
       this.bulle.replaceChildren(
         el("strong", { text: c.reference }),
         el("span", { text: [c.valeur, c.boitier].filter(Boolean).join(" · ") }),
-        el("span", { text: `${/dessous|bot/i.test(c.cote) ? "Dessous" : "Dessus"} · ${nombre(b.sx * 2, 2)} × ${nombre(b.sy * 2, 2)} × ${nombre(Math.abs(b.h), 2)} mm${b.hauteurEstimee ? " (hauteur estimée)" : ""}` }),
+        el("span", { text: `${/dessous|bot/i.test(c.cote) ? t("3d.dessous") : t("3d.dessus")} · ${nombre(b.sx * 2, 2)} × ${nombre(b.sy * 2, 2)} × ${nombre(Math.abs(b.h), 2)} mm${b.hauteurEstimee ? t("3d.hauteurEstimee") : ""}` }),
       );
       this.bulle.style.left = `${px + 14}px`;
       this.bulle.style.top = `${py + 14}px`;
