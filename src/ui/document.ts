@@ -86,7 +86,7 @@ export class DocumentTypon {
 
 /** Lit des fichiers (déposés, choisis, ou un exemple) et en fait un document. */
 export async function ouvrir(fichiers: File[], nom?: string): Promise<DocumentTypon> {
-  const lus = await Promise.all(fichiers.map(async (f) => ({ nom: (f as File & { chemin?: string }).chemin ?? f.webkitRelativePath ?? f.name, octets: await f.arrayBuffer() })));
+  const lus = await Promise.all(fichiers.map(async (f) => ({ nom: (f as File & { chemin?: string }).chemin || f.webkitRelativePath || f.name, octets: await f.arrayBuffer() })));
   for (const f of lus) if (!f.nom) f.nom = "fichier";
   const taille = lus.reduce((s, f) => s + f.octets.byteLength, 0);
   const r = await moteur.analyser(lus.map((f) => ({ nom: f.nom || "fichier", octets: f.octets })));

@@ -6,10 +6,14 @@ const CACHE = "typon-dev";
 self.addEventListener("install", (e) => {
   e.waitUntil((async () => {
     const cache = await caches.open(CACHE);
-    await cache.addAll(["./", "./index.html"]);
+    // « reload » : toujours depuis le serveur. Sans cela, le cache HTTP du navigateur (10 min sur GitHub Pages) peut
+    // rendre l'ancienne version d'un fichier de même nom (les exemples), qui resterait alors gardée dans le
+    // nouveau cache.
+    const frais = (u) => new Request(u, { cache: "reload" });
+    await cache.addAll(["./", "./index.html"].map(frais));
     try {
       const liste = await (await fetch("./hors-ligne.json", { cache: "no-cache" })).json();
-      await cache.addAll(liste);
+      await cache.addAll(liste.map(frais));
     } catch {
       // Liste absente ou connexion coupée : les fichiers seront gardés au fil de leur utilisation.
     }
