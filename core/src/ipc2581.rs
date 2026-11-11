@@ -336,6 +336,8 @@ impl<'a, 'i> Lecteur<'a, 'i> {
         if let Some(f) = self.formes.get(&cle) {
             return f.clone();
         }
+        // Garde contre une primitive qui se référence elle-même (directement ou non) : vide pendant le calcul.
+        self.formes.insert(cle.clone(), Vec::new());
         let entree = if utilisateur { self.utilisateur.get(id).copied() } else { self.standard.get(id).copied() };
         let forme = match entree {
             Some((n, k)) => {
@@ -912,7 +914,7 @@ fn outils_de(trous: Option<&Vec<(f64, String)>>) -> Vec<OutilOdb> {
             None => r.push(OutilOdb { numero: String::new(), genre, fini: *d, percage: *d, trous: 1 }),
         }
     }
-    r.sort_by(|a, b| a.percage.partial_cmp(&b.percage).unwrap());
+    r.sort_by(|a, b| a.percage.total_cmp(&b.percage));
     for (i, o) in r.iter_mut().enumerate() {
         o.numero = format!("{}", i + 1);
     }

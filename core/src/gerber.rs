@@ -66,6 +66,8 @@ impl Expr {
 struct Analyseur<'a> {
     s: &'a [u8],
     i: usize,
+    /// Parenthèses et signes imbriqués : bornés, pour ne pas épuiser la pile sur un fichier piégé.
+    profondeur: u32,
 }
 
 impl Analyseur<'_> {
@@ -105,6 +107,16 @@ impl Analyseur<'_> {
         }
     }
     fn facteur(&mut self) -> Expr {
+        self.profondeur += 1;
+        if self.profondeur > 64 {
+            self.i = self.s.len();
+            return Expr::Nombre(0.0);
+        }
+        let e = self.facteur_simple();
+        self.profondeur -= 1;
+        e
+    }
+    fn facteur_simple(&mut self) -> Expr {
         self.espace();
         match self.s.get(self.i) {
             Some(b'(') => {
@@ -137,14 +149,18 @@ impl Analyseur<'_> {
                 while self.i < self.s.len() && (self.s[self.i].is_ascii_digit() || self.s[self.i] == b'.') {
                     self.i += 1;
                 }
-                Expr::Nombre(std::str::from_utf8(&self.s[d..self.i]).ok().and_then(|t| t.parse().ok()).unwrap_or(0.0))
+                Expr::Nombre(std::str::from_utf8(&self.s[d..self.i]).ok().and_then(|t| t.parse::<f64>().ok()).filter(|v| v.is_finite()).unwrap_or(0.0))
             }
         }
     }
 }
 
 fn expr(t: &str) -> Expr {
-    Analyseur { s: t.as_bytes(), i: 0 }.somme()
+    // Une expression démesurée donnerait un arbre si profond que son évaluation épuiserait la pile.
+    if t.len() > 2000 {
+        return Expr::Nombre(0.0);
+    }
+    Analyseur { s: t.as_bytes(), i: 0, profondeur: 0 }.somme()
 }
 
 #[derive(Clone, Debug)]
@@ -204,6 +220,8 @@ struct Lecteur {
     formes: HashMap<i32, Vec<Prim>>,
     // Sortie
     cadres: Vec<Cadre>,
+    /// Éléments émis (plafonnés, voir geom::LIMITE_ELEMENTS).
+    emis: usize,
     /// Informations distinctes (partagées par les objets qui ont les mêmes attributs).
     objets_info: Vec<Info>,
     infos_index: HashMap<Info, u32>,
@@ -287,6 +305,7 @@ fn nouveau_lecteur() -> Lecteur {
         attr_ouvertures: HashMap::new(),
         formes: HashMap::new(),
         cadres: vec![Cadre { elements: Vec::new(), infos: Vec::new(), genre: Genre::Racine }],
+        emis: 0,
         objets_info: Vec::new(),
         infos_index: HashMap::new(),
         objets: Vec::new(),
@@ -411,12 +430,17 @@ impl Lecteur {
                     let mut dy = 0.0;
                     for (lettre, valeur) in champs(reste) {
                         match lettre {
-                            'X' => nx = valeur.parse::<f64>().unwrap_or(1.0) as usize,
-                            'Y' => ny = valeur.parse::<f64>().unwrap_or(1.0) as usize,
-                            'I' => dx = valeur.parse::<f64>().unwrap_or(0.0) * self.facteur,
-                            'J' => dy = valeur.parse::<f64>().unwrap_or(0.0) * self.facteur,
+                            'X' => nx = nombre_fini(valeur, 1.0) as usize,
+                            'Y' => ny = nombre_fini(valeur, 1.0) as usize,
+                            'I' => dx = nombre_fini(valeur, 0.0) * self.facteur,
+                            'J' => dy = nombre_fini(valeur, 0.0) * self.facteur,
                             _ => {}
                         }
+                    }
+                    if nx.saturating_mul(ny) > 100_000 {
+                        self.alerte(format!("Répétition de {nx} × {ny} : ramenée à une seule copie (au plus 100 000 copies)."));
+                        nx = 1;
+                        ny = 1;
                     }
                     if nx > 1 || ny > 1 {
                         self.cadres.push(Cadre {
@@ -432,8 +456,8 @@ impl Lecteur {
                 self.miroir_x = reste.contains('X');
                 self.miroir_y = reste.contains('Y');
             }
-            "LR" => self.rotation = reste.parse::<f64>().unwrap_or(0.0).to_radians(),
-            "LS" => self.echelle = reste.parse::<f64>().unwrap_or(1.0),
+            "LR" => self.rotation = nombre_fini(reste, 0.0).to_radians(),
+            "LS" => self.echelle = nombre_fini(reste, 1.0),
             "TF" => {
                 let (nom, valeurs) = attribut(reste);
                 if nom == ".Part" || nom == ".FileFunction" || !nom.is_empty() {
@@ -500,7 +524,7 @@ impl Lecteur {
 
     fn coord(&self, t: &str) -> f64 {
         let v = if t.contains('.') {
-            t.parse::<f64>().unwrap_or(0.0)
+            nombre_fini(t, 0.0)
         } else {
             let (signe, chiffres) = match t.as_bytes().first() {
                 Some(b'-') => (-1.0, &t[1..]),
@@ -508,14 +532,14 @@ impl Lecteur {
                 _ => (1.0, t),
             };
             let n = if self.zeros_tete_omis {
-                chiffres.parse::<f64>().unwrap_or(0.0)
+                nombre_fini(chiffres, 0.0)
             } else {
                 let total = self.entiers + self.decimales;
                 let mut s = chiffres.to_string();
                 while s.len() < total {
                     s.push('0');
                 }
-                s.parse::<f64>().unwrap_or(0.0)
+                nombre_fini(&s, 0.0)
             };
             signe * n / 10f64.powi(self.decimales as i32)
         };
@@ -532,7 +556,7 @@ impl Lecteur {
             Some(p) => (&reste[..p], &reste[p + 1..]),
             None => (reste, ""),
         };
-        let p: Vec<f64> = params.split('X').filter(|s| !s.is_empty()).map(|s| s.trim().parse::<f64>().unwrap_or(0.0)).collect();
+        let p: Vec<f64> = params.split('X').filter(|s| !s.is_empty()).map(|s| nombre_fini(s.trim(), 0.0)).collect();
         let k = self.facteur;
         let g = |i: usize| p.get(i).copied().unwrap_or(0.0);
         let ouv = match forme {
@@ -747,6 +771,17 @@ impl Lecteur {
     }
 
     fn emettre(&mut self, prim: Prim, sombre: bool, info: u32) {
+        if !prim.valide() {
+            self.alerte("Valeurs aberrantes (non finies ou démesurées) : objets ignorés.");
+            return;
+        }
+        self.emis += 1;
+        if self.emis > crate::geom::LIMITE_ELEMENTS {
+            if self.emis == crate::geom::LIMITE_ELEMENTS + 1 {
+                self.alerte(format!("Plus de {} éléments : la suite du fichier est ignorée (fichier démesuré ou piégé ?).", crate::geom::LIMITE_ELEMENTS));
+            }
+            return;
+        }
         let cadre = self.cadres.last_mut().unwrap();
         cadre.elements.push(Element { prim, sombre, objet: info });
     }
@@ -866,6 +901,9 @@ impl Lecteur {
         };
         let t = self.transfo_objet(p);
         let sombre = self.sombre;
+        if self.emis > crate::geom::LIMITE_ELEMENTS {
+            return;
+        }
         if let Ouverture::Bloc { dessin, infos } = &ouv {
             // Les objets du bloc gardent leurs propres attributs ; polarités inversées si le flash est clair.
             let base = self.objets.len() as u32;
@@ -1138,7 +1176,7 @@ fn executer_macro(instructions: &[Instruction], params: &[f64]) -> Vec<(Prim, bo
                     }
                     4 => {
                         // Contour : exposition, n, (n+1) points, rotation
-                        let n = g(1) as usize;
+                        let n = (g(1).max(0.0) as usize).min(100_000);
                         let pts: Vec<Pt> = (0..=n).map(|i| pt(g(2 + 2 * i), g(3 + 2 * i))).collect();
                         let prim = Prim::Poly { anneaux: vec![pts] };
                         r.push((prim.transformee(&rot(g(4 + 2 * n))), expose(g(0))));
@@ -1153,7 +1191,7 @@ fn executer_macro(instructions: &[Instruction], params: &[f64]) -> Vec<(Prim, bo
                         let c = pt(g(0), g(1));
                         let t = rot(g(8));
                         let mut d = g(2);
-                        for _ in 0..(g(5) as usize).max(1) {
+                        for _ in 0..(g(5).max(0.0) as usize).clamp(1, 100) {
                             if d <= 0.0 {
                                 break;
                             }
@@ -1211,7 +1249,7 @@ fn centre_quadrant_unique(debut: Pt, fin: Pt, i: f64, j: f64, horaire: bool) -> 
 }
 
 pub fn enveloppe_convexe(mut p: Vec<Pt>) -> Vec<Pt> {
-    p.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap().then(a.y.partial_cmp(&b.y).unwrap()));
+    p.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
     p.dedup_by(|a, b| a.dist(*b) < 1e-12);
     if p.len() < 3 {
         return p;
@@ -1235,4 +1273,9 @@ pub fn enveloppe_convexe(mut p: Vec<Pt>) -> Vec<Pt> {
     haut.pop();
     bas.extend(haut);
     bas
+}
+
+/// Nombre lu dans le fichier : seules les valeurs finies sont gardées (« NaN », « inf » ou « 1e999 » sont refusés).
+fn nombre_fini(t: &str, defaut: f64) -> f64 {
+    t.parse::<f64>().ok().filter(|v| v.is_finite()).unwrap_or(defaut)
 }

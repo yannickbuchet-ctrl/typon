@@ -203,7 +203,7 @@ pub extern "C" fn modele_3d(lot: u32) -> *mut u8 {
             source = "rectangle";
         }
         // Le bord : l'anneau de plus grande aire ; les découpes : les anneaux à l'intérieur du bord.
-        anneaux.sort_by(|a, b| geom::aire(b).abs().partial_cmp(&geom::aire(a).abs()).unwrap());
+        anneaux.sort_by(|a, b| geom::aire(b).abs().total_cmp(&geom::aire(a).abs()));
         let bord = anneaux[0].clone();
         let decoupes: Vec<Vec<geom::Pt>> = anneaux[1..].iter().filter(|a| geom::point_dans_anneau(a[0], &bord)).cloned().collect();
         let mut tous = vec![bord];
@@ -556,6 +556,10 @@ pub fn analyser(lot: &mut Lot) -> Value {
 
     // Couches cuivre sans numéro : numérotées d'après leur côté.
     couches.sort_by(|a, b| b.role.rang.cmp(&a.role.rang).then(a.nom.cmp(&b.nom)));
+    // Couches tronquées au plafond d'éléments (fichier démesuré ou piégé).
+    for c in couches.iter().filter(|c| c.dessin.tronque) {
+        alertes.push(format!("« {} » : plus de {} éléments, la suite du fichier est ignorée.", c.fichier, geom::LIMITE_ELEMENTS));
+    }
     // Noms en double (deux fichiers « Cuivre dessus ») : on ajoute le nom du fichier.
     let mut vus: HashMap<String, usize> = HashMap::new();
     for c in &couches {
@@ -772,11 +776,7 @@ fn traduire_tf(n: &str, v: &[String]) -> String {
         "CreationDate" => {
             // 2019-06-03T14:22:52+02:00 -> 03/06/2019 14:22
             let s = v.join(",");
-            if s.len() >= 16 && s.as_bytes()[4] == b'-' {
-                format!("{}/{}/{} {}", &s[8..10], &s[5..7], &s[0..4], &s[11..16])
-            } else {
-                s
-            }
+            crate::job::date_lisible(&s).unwrap_or(s)
         }
         "GenerationSoftware" => v.iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join(" "),
         _ => v.join(", "),

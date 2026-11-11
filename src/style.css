@@ -309,3 +309,5 @@ body.depot-actif::after { content: "Déposez pour ouvrir"; position: fixed; inse
 /* Barre : les boutons secondaires perdent leur texte quand la place manque (le titre reste en infobulle). */
 @media (max-width: 1700px) { .barre .bouton.compact span { display: none; } .barre .bouton.compact { padding: 0 10px; } }
 .tableau-net th { padding: 7px 8px; font-weight: 600; color: var(--texte-2); position: static; }
+.avertissement-panneau { display: flex; gap: 8px; align-items: flex-start; padding: 9px 11px; border-radius: 9px; background: rgba(255, 179, 71, 0.12); border: 1px solid rgba(255, 179, 71, 0.35); color: var(--texte); font-size: 0.86rem; margin: 10px 0 0; }
+.avertissement-panneau svg { flex: none; color: var(--accent-2); margin-top: 2px; }

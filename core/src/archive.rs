@@ -1,7 +1,6 @@
 //! Archives : ZIP (stocké ou « deflate »), TAR, TAR compressé par gzip (.tgz), et compression Unix « .Z » (LZW) des
 //! anciens fichiers ODB++. Lecteurs minimaux, sans dépendance autre que miniz_oxide pour « deflate ».
 
-use miniz_oxide::inflate::decompress_to_vec;
 
 pub struct Fichier {
     pub chemin: String,
@@ -9,7 +8,9 @@ pub struct Fichier {
 }
 
 /// Taille maximale décompressée acceptée pour une archive (protection contre les « bombes » de compression).
-const MAX_TOTAL: usize = 1 << 30;
+/// 400 Mo : au-delà, la mémoire d'un module WebAssembly (4 Go au plus, et souvent moins) ne suffirait plus à lire
+/// les couches.
+const MAX_TOTAL: usize = 400 << 20;
 
 pub fn est_zip(o: &[u8]) -> bool {
     o.starts_with(b"PK\x03\x04") || o.starts_with(b"PK\x05\x06")
@@ -34,18 +35,18 @@ pub fn developper(nom: &str, octets: Vec<u8>) -> Result<Vec<Fichier>, String> {
 }
 
 fn developper_dans(nom: &str, octets: Vec<u8>, sortie: &mut Vec<Fichier>, total: &mut usize, profondeur: u32) -> Result<(), String> {
-    if profondeur > 4 {
-        return Ok(());
+    if profondeur > 6 {
+        return Err(format!("« {nom} » : archives imbriquées trop profondément."));
     }
     *total += octets.len();
     if *total > MAX_TOTAL {
-        return Err("Archive trop volumineuse une fois décompressée (plus de 1 Go).".into());
+        return Err("Archive trop volumineuse une fois décompressée (plus de 400 Mo).".into());
     }
     let prefixe = |c: &str| -> String {
         if profondeur == 0 { c.to_string() } else { format!("{}/{}", sans_extension_archive(nom), c) }
     };
     if est_zip(&octets) {
-        for f in lire_zip(&octets)? {
+        for f in lire_zip_limite(&octets, MAX_TOTAL.saturating_sub(*total))? {
             let chemin = prefixe(&f.chemin);
             developper_dans(&chemin, f.octets, sortie, total, profondeur + 1)?;
         }
@@ -53,7 +54,7 @@ fn developper_dans(nom: &str, octets: Vec<u8>, sortie: &mut Vec<Fichier>, total:
         let d = gunzip(&octets)?;
         let interne = sans_extension_archive(nom);
         let interne = if interne == nom { format!("{nom}.contenu") } else { interne };
-        developper_dans(&interne, d, sortie, total, profondeur)?;
+        developper_dans(&interne, d, sortie, total, profondeur + 1)?;
     } else if est_tar(&octets) {
         for f in lire_tar(&octets)? {
             let chemin = prefixe(&f.chemin);
@@ -62,7 +63,7 @@ fn developper_dans(nom: &str, octets: Vec<u8>, sortie: &mut Vec<Fichier>, total:
     } else if est_lzw(&octets) {
         let d = lzw(&octets)?;
         let interne = nom.strip_suffix(".Z").or(nom.strip_suffix(".z")).unwrap_or(nom).to_string();
-        developper_dans(&interne, d, sortie, total, profondeur)?;
+        developper_dans(&interne, d, sortie, total, profondeur + 1)?;
     } else {
         sortie.push(Fichier { chemin: nom.to_string(), octets });
     }
@@ -87,6 +88,12 @@ fn u32le(o: &[u8], i: usize) -> usize {
 }
 
 pub fn lire_zip(o: &[u8]) -> Result<Vec<Fichier>, String> {
+    lire_zip_limite(o, MAX_TOTAL)
+}
+
+/// Lit une archive ZIP ; `limite` : octets décompressés acceptés au total (protection contre les « bombes »).
+pub fn lire_zip_limite(o: &[u8], limite: usize) -> Result<Vec<Fichier>, String> {
+    let mut reste = limite;
     // Fin du répertoire central : signature PK\x05\x06, cherchée depuis la fin.
     let min = o.len().saturating_sub(65_557);
     let fin = (min..o.len().saturating_sub(21)).rev().find(|&i| &o[i..i + 4] == b"PK\x05\x06").ok_or("Archive ZIP abîmée (répertoire introuvable).")?;
@@ -119,9 +126,10 @@ pub fn lire_zip(o: &[u8]) -> Result<Vec<Fichier>, String> {
         let donnees = o.get(debut..debut + taille_c).ok_or("Archive ZIP tronquée.")?;
         let octets = match methode {
             0 => donnees.to_vec(),
-            8 => miniz_oxide::inflate::decompress_to_vec(donnees).map_err(|_| format!("« {nom} » : décompression impossible."))?,
+            8 => miniz_oxide::inflate::decompress_to_vec_with_limit(donnees, reste).map_err(|_| format!("« {nom} » : décompression impossible, ou plus de 400 Mo une fois décompressé."))?,
             m => return Err(format!("« {nom} » : méthode de compression {m} non prise en charge.")),
         };
+        reste = reste.checked_sub(octets.len()).ok_or("Archive trop volumineuse une fois décompressée (plus de 400 Mo).")?;
         fichiers.push(Fichier { chemin: nom, octets });
     }
     Ok(fichiers)
@@ -156,7 +164,6 @@ pub fn gunzip(o: &[u8]) -> Result<Vec<u8>, String> {
         p += 2;
     }
     let corps = o.get(p..).ok_or("Fichier gzip tronqué.")?;
-    let _ = decompress_to_vec;
     miniz_oxide::inflate::decompress_to_vec_with_limit(corps, MAX_TOTAL).map_err(|_| "Décompression gzip impossible (fichier abîmé ?).".into())
 }
 

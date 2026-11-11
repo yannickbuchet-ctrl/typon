@@ -110,6 +110,16 @@ impl Prim {
         }
     }
 
+    /// Toutes les valeurs sont finies et raisonnables (un fichier abîmé peut donner NaN, l'infini ou 1e300).
+    pub fn valide(&self) -> bool {
+        let p = |q: &Pt| coordonnee_valide(q.x) && coordonnee_valide(q.y);
+        match self {
+            Prim::Cap { a, b, r } => p(a) && p(b) && r.is_finite() && *r >= 0.0 && *r < 1e3,
+            Prim::Boite { c, hw, hh, ang, rad } => p(c) && [hw, hh, rad].iter().all(|v| v.is_finite() && **v >= 0.0 && **v < 1e3) && ang.is_finite(),
+            Prim::Poly { anneaux } => !anneaux.is_empty() && anneaux.iter().all(|a| a.iter().all(p)),
+        }
+    }
+
     pub fn boite_englobante(&self) -> BBox {
         let mut b = BBox::vide();
         match self {
@@ -285,7 +295,8 @@ pub fn cercle(c: Pt, r: f64) -> Vec<Pt> {
 
 /// Polygone régulier à n sommets, de diamètre extérieur d, premier sommet à l'angle `rot`.
 pub fn polygone_regulier(c: Pt, d: f64, n: usize, rot: f64) -> Vec<Pt> {
-    let n = n.max(3);
+    // La norme Gerber limite les polygones à 12 sommets ; un nombre aberrant ne doit pas épuiser la mémoire.
+    let n = n.clamp(3, 360);
     (0..n).map(|i| {
         let a = rot + 2.0 * PI * i as f64 / n as f64;
         pt(c.x + d / 2.0 * a.cos(), c.y + d / 2.0 * a.sin())
@@ -395,6 +406,17 @@ pub struct Dessin {
     pub objets: Vec<u32>,
     pub infos: Vec<Info>,
     index_infos: HashMap<Info, u32>,
+    /// Le plafond d'éléments a été atteint : la suite du fichier est ignorée.
+    pub tronque: bool,
+}
+
+/// Plafond d'éléments par couche : protège la mémoire (WebAssembly, 4 Go au plus) contre un fichier qui démultiplie
+/// ses éléments (répétitions, blocs imbriqués). Les plus grosses cartes réelles restent loin en dessous.
+pub const LIMITE_ELEMENTS: usize = 8_000_000;
+
+/// Coordonnée acceptable : finie, et à moins de 10 m de l'origine.
+pub fn coordonnee_valide(v: f64) -> bool {
+    v.is_finite() && v.abs() < 1e4
 }
 
 impl Dessin {
@@ -413,6 +435,13 @@ impl Dessin {
         (self.objets.len() - 1) as u32
     }
     pub fn ajoute(&mut self, prim: Prim, sombre: bool, objet: u32) {
+        if !prim.valide() {
+            return;
+        }
+        if self.elements.len() >= LIMITE_ELEMENTS {
+            self.tronque = true;
+            return;
+        }
         self.elements.push(Element { prim, sombre, objet });
     }
     pub fn info_objet(&self, objet: u32) -> Option<&Info> {

@@ -69,10 +69,22 @@ type Demande =
   | { op: "panneau"; lot: number; params: Record<string, unknown> }
   | { op: "fermer"; lot: number };
 
+/**
+ * Époque du module : après une erreur interne, le module est rechargé et ses numéros de lot repartent de 1. Les
+ * numéros donnés à la page portent l'époque (époque × 1 000 000 + lot), pour qu'un document ouvert avant le
+ * redémarrage ne soit jamais confondu avec un nouveau.
+ */
+let epoque = 0;
+const PAS_EPOQUE = 1_000_000;
+
 self.onmessage = async (e: MessageEvent<{ id: number } & Demande>) => {
   const { id, ...d } = e.data;
   try {
     const m = await charger();
+    if ("lot" in d) {
+      if (Math.floor(d.lot / PAS_EPOQUE) !== epoque) throw new Error("Le moteur a redémarré après une erreur : rouvrez ces fichiers.");
+      d.lot %= PAS_EPOQUE;
+    }
     let resultat: unknown;
     const transferts: Transferable[] = [];
     switch (d.op) {
@@ -86,7 +98,7 @@ self.onmessage = async (e: MessageEvent<{ id: number } & Demande>) => {
         }
         const t0 = performance.now();
         const { json } = lire(m, m.lot_analyser(lot));
-        resultat = { lot, description: json, duree: performance.now() - t0 };
+        resultat = { lot: epoque * PAS_EPOQUE + lot, description: json, duree: performance.now() - t0 };
         break;
       }
       case "geometrie": {
@@ -147,11 +159,16 @@ self.onmessage = async (e: MessageEvent<{ id: number } & Demande>) => {
     }
     (self as unknown as Worker).postMessage({ id, ok: true, resultat }, transferts);
   } catch (err) {
-    const message = err instanceof WebAssembly.RuntimeError
-      ? "Le moteur s'est arrêté sur une erreur interne en lisant ces fichiers. Rechargez la page et réessayez, ou signalez le fichier en cause."
+    // Erreur interne du module (arrêt du code Rust) ou pile épuisée (RangeError) : le module n'est plus fiable, il
+    // sera rechargé à la prochaine demande, dans une nouvelle époque.
+    const interne = err instanceof WebAssembly.RuntimeError || err instanceof RangeError;
+    const message = interne
+      ? "Le moteur s'est arrêté sur une erreur interne en lisant ces fichiers. Les fichiers déjà ouverts sont à rouvrir ; signalez le fichier en cause si l'erreur se reproduit."
       : String((err as Error)?.message ?? err);
-    // Après une erreur interne, le module n'est plus fiable : il sera rechargé à la prochaine demande.
-    if (err instanceof WebAssembly.RuntimeError) moteur = null;
+    if (interne) {
+      moteur = null;
+      epoque++;
+    }
     (self as unknown as Worker).postMessage({ id, ok: false, erreur: message });
   }
 };

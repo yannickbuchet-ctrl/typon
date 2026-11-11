@@ -324,10 +324,10 @@ fn libelle_info(k: &str) -> String {
 }
 
 fn formater_info(k: &str, v: &str) -> String {
-    if k.ends_with("_DATE") && v.len() >= 8 {
-        // 20161024.101454 -> 24/10/2016 10:14:54
+    if k.ends_with("_DATE") && v.get(..8).map(|d| d.bytes().all(|o| o.is_ascii_digit())).unwrap_or(false) {
+        // 20161024.101454 -> 24/10/2016 10:14:54 (chiffres ASCII vérifiés : le découpage ne coupe aucun caractère)
         let d = &v[..8];
-        let h = v.get(9..15).unwrap_or("");
+        let h = v.get(9..15).filter(|h| h.bytes().all(|o| o.is_ascii_digit())).unwrap_or("");
         let mut s = format!("{}/{}/{}", &d[6..8], &d[4..6], &d[0..4]);
         if h.len() == 6 {
             s += &format!(" {}:{}:{}", &h[0..2], &h[2..4], &h[4..6]);
@@ -466,6 +466,10 @@ fn dessiner_etape(arbre: &Arbre, etape: &str, couche: &str, dessin: &mut Dessin,
                             .apres(&Transfo::translation((g("X") + i as f64 * g("DX")) * k, (g("Y") + j as f64 * g("DY")) * k))
                             .apres(&Transfo::rotation(-g("ANGLE").to_radians()))
                             .apres(&Transfo::miroir(c.get("MIRROR").map(|m| m == "YES").unwrap_or(false), false));
+                        // Une étape qui se répète elle-même, ou des répétitions démesurées : arrêt au plafond d'éléments.
+                        if enfant == etape || dessin.tronque {
+                            return nb;
+                        }
                         nb += dessiner_etape(arbre, &enfant, couche, dessin, symboles, police, None, tt, profondeur + 1, None);
                     }
                 }
@@ -558,6 +562,10 @@ fn dessiner_features(texte: &str, dessin: &mut Dessin, symboles: &mut Symboles, 
             let n: usize = p.next().and_then(|v| v.parse().ok()).unwrap_or(table.len());
             let nom = p.next().unwrap_or("").to_string();
             let unite = p.next().map(|u| u.eq_ignore_ascii_case("M"));
+            // Un index aberrant ne doit pas allouer des gigaoctets (ni déborder).
+            if n > 1_000_000 {
+                continue;
+            }
             if table.len() <= n {
                 table.resize(n + 1, (String::new(), None));
             }
@@ -1004,7 +1012,7 @@ fn symbole_standard(nom: &str, k: f64) -> Option<Vec<(Prim, bool)>> {
         "thr" | "ths" => {
             let (d, i) = (n(0)?, n(1)?);
             let angle = p.get(2).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0).to_radians();
-            let branches = p.get(3).and_then(|v| v.parse::<f64>().ok()).unwrap_or(4.0) as usize;
+            let branches = p.get(3).and_then(|v| v.parse::<f64>().ok()).unwrap_or(4.0).clamp(0.0, 64.0) as usize;
             let ecart = n(4).unwrap_or(0.0);
             let ext = if *prefixe == "ths" { rectangle_coins(o, d, d, 0.0, false, 0) } else { cercle(o, d / 2.0) };
             thermique(o, &ext, &cercle(o, i / 2.0), branches, angle, ecart).into_iter().map(|p| (p, true)).collect()
@@ -1012,7 +1020,7 @@ fn symbole_standard(nom: &str, k: f64) -> Option<Vec<(Prim, bool)>> {
         "s_ths" | "s_tho" | "sr_ths" => {
             let (d, i) = (n(0)?, n(1)?);
             let angle = p.get(2).and_then(|v| v.parse::<f64>().ok()).unwrap_or(45.0).to_radians();
-            let branches = p.get(3).and_then(|v| v.parse::<f64>().ok()).unwrap_or(4.0) as usize;
+            let branches = p.get(3).and_then(|v| v.parse::<f64>().ok()).unwrap_or(4.0).clamp(0.0, 64.0) as usize;
             let ecart = n(4).unwrap_or(0.0);
             let int = if *prefixe == "sr_ths" { cercle(o, i / 2.0) } else { rectangle_coins(o, i, i, 0.0, false, 0) };
             thermique(o, &rectangle_coins(o, d, d, 0.0, false, 0), &int, branches, angle, ecart).into_iter().map(|p| (p, true)).collect()
@@ -1020,13 +1028,13 @@ fn symbole_standard(nom: &str, k: f64) -> Option<Vec<(Prim, bool)>> {
         "rc_ths" | "rc_tho" => {
             let (w, h) = (n(0)?, n(1)?);
             let angle = p.get(2).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0).to_radians();
-            let branches = p.get(3).and_then(|v| v.parse::<f64>().ok()).unwrap_or(4.0) as usize;
+            let branches = p.get(3).and_then(|v| v.parse::<f64>().ok()).unwrap_or(4.0).clamp(0.0, 64.0) as usize;
             let ecart = n(4).unwrap_or(0.0);
             let anneau = n(5).unwrap_or(w.min(h) / 4.0);
             thermique(o, &rectangle_coins(o, w, h, 0.0, false, 0), &rectangle_coins(o, w - 2.0 * anneau, h - 2.0 * anneau, 0.0, false, 0), branches, angle, ecart).into_iter().map(|p| (p, true)).collect()
         }
         "moire" => {
-            let (rw, rg, nr, lw, ll) = (n(0)?, n(1)?, p.get(2).and_then(|v| v.parse::<f64>().ok()).unwrap_or(1.0) as usize, n(3)?, n(4)?);
+            let (rw, rg, nr, lw, ll) = (n(0)?, n(1)?, p.get(2).and_then(|v| v.parse::<f64>().ok()).unwrap_or(1.0).clamp(0.0, 100.0) as usize, n(3)?, n(4)?);
             let angle = p.get(5).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0).to_radians();
             let mut r = Vec::new();
             for j in 0..nr.max(1) {

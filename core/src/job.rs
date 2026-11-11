@@ -91,9 +91,7 @@ fn aplatir(v: &Value, prefixe: &str, sortie: &mut Vec<(String, String)>, texte_d
                 match x {
                     Value::Object(_) => aplatir(x, &nom, sortie, texte_de),
                     Value::Array(a) if a.iter().all(|y| y.is_object()) && !a.is_empty() => aplatir(x, &nom, sortie, texte_de),
-                    Value::String(s) if k == "CreationDate" && s.len() >= 16 && s.as_bytes()[4] == b'-' => {
-                        sortie.push((nom, format!("{}/{}/{} {}", &s[8..10], &s[5..7], &s[0..4], &s[11..16])))
-                    }
+                    Value::String(s) if k == "CreationDate" && date_lisible(s).is_some() => sortie.push((nom, date_lisible(s).unwrap_or_default())),
                     Value::Number(n) if k.contains("Width") || k.contains("To") || k == "BoardThickness" || k == "X" || k == "Y" => {
                         sortie.push((nom, format!("{} mm", n.to_string().replace('.', ","))))
                     }
@@ -143,4 +141,13 @@ fn libelle(k: &str) -> String {
         }
     };
     k.split(" · ").map(traduire).collect::<Vec<_>>().join(" · ")
+}
+
+/// « 2019-06-03T14:22:52+02:00 » → « 03/06/2019 14:22 », sans jamais couper un caractère (le texte vient du fichier).
+pub fn date_lisible(s: &str) -> Option<String> {
+    let c = |a: usize, b: usize| s.get(a..b).filter(|t| t.bytes().all(|o| o.is_ascii_digit() || o == b':'));
+    if s.as_bytes().get(4) != Some(&b'-') {
+        return None;
+    }
+    Some(format!("{}/{}/{} {}", c(8, 10)?, c(5, 7)?, c(0, 4)?, c(11, 16)?))
 }

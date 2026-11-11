@@ -49,11 +49,11 @@ const fr = {
 
   // Exemples de l'accueil
   "exemple.carte.titre": "Carte d'exemple",
-  "exemple.carte.texte": "Gerber X2/X3 et perçages d'un nœud capteur fictif à 4 couches",
+  "exemple.carte.texte": "Capteur IoT à 4 couches, 47 composants, en Gerber et Excellon. Six défauts à trouver avec le DFM.",
   "exemple.odb.titre": "La même en ODB++",
-  "exemple.odb.texte": "Composants, nets, nomenclature mis en forme",
+  "exemple.odb.texte": "Composants, nets et nomenclature en tableaux, boîtiers en 3D.",
   "exemple.comparer.titre": "Comparer deux révisions",
-  "exemple.comparer.texte": "Révision A et révision B de la carte d'exemple",
+  "exemple.comparer.texte": "Révisions A et B du capteur : piste déroutée, composants ajoutés, retirés ou modifiés.",
 
   // Accueil
   "accueil.ouvrir": "Ouvrir des fichiers",
@@ -400,11 +400,11 @@ const en: Record<Cle, Texte> = {
   "cadre.confidentialite": "Your files stay on this device: nothing is uploaded.",
 
   "exemple.carte.titre": "Sample board",
-  "exemple.carte.texte": "Gerber X2/X3 and drill files of a fictitious 4-layer sensor node",
+  "exemple.carte.texte": "4-layer IoT sensor, 47 components, as Gerber and Excellon. Six defects to find with DFM.",
   "exemple.odb.titre": "The same board in ODB++",
-  "exemple.odb.texte": "Components, nets and BOM, neatly laid out",
+  "exemple.odb.texte": "Components, nets and BOM in tables, packages in 3D.",
   "exemple.comparer.titre": "Compare two revisions",
-  "exemple.comparer.texte": "Revision A and revision B of the sample board",
+  "exemple.comparer.texte": "Revisions A and B of the sensor: rerouted track, components added, removed or changed.",
 
   "accueil.ouvrir": "Open files",
   "accueil.depot.titre": "Drop your manufacturing files here",

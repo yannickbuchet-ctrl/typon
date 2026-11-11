@@ -472,7 +472,7 @@ pub fn verifier(couches: &[Couche], regles: &Regles) -> Value {
             break;
         }
     }
-    bord.sort_by(|a, b| geom::aire(b).abs().partial_cmp(&geom::aire(a).abs()).unwrap());
+    bord.sort_by(|a, b| geom::aire(b).abs().total_cmp(&geom::aire(a).abs()));
     let forme_carte: Vec<Forme> = if bord.is_empty() {
         vec![]
     } else {

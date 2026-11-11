@@ -475,6 +475,7 @@ export class Fabrication {
     dialogue.append(
       el("h2", { html: `${icone("couches", 18)} ${L("Mise en panneau", "Panelization")}` }),
       el("p", { class: "discret", text: L(`Carte de ${longueur(carte[0], this.hote.unite(), 2)} × ${longueur(carte[1], this.hote.unite(), 2)}. Le panneau est écrit en Gerber X2 et Excellon (archive ZIP), quel que soit le format d'origine.`, `Board of ${longueur(carte[0], this.hote.unite(), 2)} × ${longueur(carte[1], this.hote.unite(), 2)}. The panel is written as Gerber X2 and Excellon (ZIP archive), whatever the source format.`) }),
+      el("p", { class: "avertissement-panneau", html: `${icone("alerte", 15)} ${L("<strong>Aperçu</strong> : ne pas envoyer ces fichiers en fabrication pour l'instant. Le détourage des cartes, les perçages borgnes ou enterrés et la place des mires sont encore à corriger.", "<strong>Preview</strong>: do not send these files to manufacturing yet. Board routing, blind or buried drills and fiducial placement still need fixing.")}` }),
       formulaire, taille,
       el("div", { class: "actions" },
         el("button", { type: "button", class: "bouton", text: L("Fermer", "Close"), onclick: () => dialogue.close() }),
