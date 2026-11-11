@@ -49,7 +49,7 @@ const fr = {
 
   // Exemples de l'accueil
   "exemple.carte.titre": "Carte d'exemple",
-  "exemple.carte.texte": "Gerber X2 et perçages d'une carte fictive à 4 couches",
+  "exemple.carte.texte": "Gerber X2/X3 et perçages d'un nœud capteur fictif à 4 couches",
   "exemple.odb.titre": "La même en ODB++",
   "exemple.odb.texte": "Composants, nets, nomenclature mis en forme",
   "exemple.comparer.titre": "Comparer deux révisions",
@@ -400,7 +400,7 @@ const en: Record<Cle, Texte> = {
   "cadre.confidentialite": "Your files stay on this device: nothing is uploaded.",
 
   "exemple.carte.titre": "Sample board",
-  "exemple.carte.texte": "Gerber X2 and drill files of a fictitious 4-layer board",
+  "exemple.carte.texte": "Gerber X2/X3 and drill files of a fictitious 4-layer sensor node",
   "exemple.odb.titre": "The same board in ODB++",
   "exemple.odb.texte": "Components, nets and BOM, neatly laid out",
   "exemple.comparer.titre": "Compare two revisions",

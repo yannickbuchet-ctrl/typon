@@ -63,7 +63,7 @@ try {
   const libelles = await page.locator(".liste-couches .libelle").allTextContents();
   for (const l of ["Cuivre dessus", "Cuivre interne 2", "Cuivre interne 3", "Cuivre dessous", "Contour de la carte", "Perçage métallisé 1–4", "Perçage non métallisé 1–4", "Composants dessus"]) verifier(libelles.includes(l), `couche « ${l} » absente : ${libelles.join(", ")}`);
 
-  // Sélection d'une pastille : U1 broche 2 (SDA), à (19,3 ; 23,27)
+  // Sélection d'une pastille : J5 (Qwiic) broche 3 (SDA), à (54 ; 18)
   const pointEcran = async (x, y) => page.evaluate(([x, y]) => {
     const v = document.querySelector(".visionneuse");
     const r = v.getBoundingClientRect();
@@ -78,11 +78,11 @@ try {
     await page.mouse.click(boite.x + boite.width / 2, boite.y + boite.height / 2);
     await page.waitForTimeout(600);
   };
-  await cliquerCarte(22 - 2.7, 22 + 1.905 - 1.27);
+  await cliquerCarte(54.0, 18.0);
   const inspecteur = await page.locator(".contenu-onglet").textContent();
-  verifier(inspecteur.includes("SDA") && inspecteur.includes("U1"), `inspecteur : ${inspecteur.slice(0, 300)}`);
+  verifier(inspecteur.includes("SDA") && inspecteur.includes("J5"), `inspecteur : ${inspecteur.slice(0, 300)}`);
   await page.screenshot({ path: path.join(captures, "inspecteur.png") });
-  bilan.push("Inspecteur : pastille U1-2 sur le net SDA");
+  bilan.push("Inspecteur : pastille J5-3 sur le net SDA");
 
   // Mesure entre deux points
   await page.keyboard.press("f");
@@ -103,10 +103,10 @@ try {
   // Onglets : carte, composants (X3)
   await page.getByRole("tab", { name: /Carte/ }).click();
   const resumeCarte = await page.locator(".contenu-onglet").textContent();
-  verifier(resumeCarte.includes("64 mm × 42 mm") && resumeCarte.includes("ENIG"), `résumé : ${resumeCarte.slice(0, 400)}`);
+  verifier(resumeCarte.includes("60 mm × 38 mm") && resumeCarte.includes("ENIG"), `résumé : ${resumeCarte.slice(0, 400)}`);
   await page.getByRole("tab", { name: /Composants/ }).click();
   const nbComposants = await page.locator(".contenu-onglet tbody tr").count();
-  verifier(nbComposants === 11, `composants X3 : ${nbComposants}`);
+  verifier(nbComposants === 47, `composants X3 : ${nbComposants}`);
   await page.screenshot({ path: path.join(captures, "composants-x3.png") });
 
   // ODB++
@@ -117,11 +117,11 @@ try {
   await page.screenshot({ path: path.join(captures, "odb.png") });
   await page.getByRole("tab", { name: /Nomenclature/ }).click();
   const bom = await page.locator(".contenu-onglet").textContent();
-  verifier(bom.includes("TD-R4K7") && bom.includes("R1, R2"), `nomenclature : ${bom.slice(0, 300)}`);
+  verifier(bom.includes("RC0402FR-075K1L") && bom.includes("R1, R2") && bom.includes("STM32G0B1KEU6"), `nomenclature : ${bom.slice(0, 300)}`);
   await page.screenshot({ path: path.join(captures, "odb-nomenclature.png") });
   await page.getByRole("tab", { name: /Nets/ }).click();
   const nets = await page.locator(".contenu-onglet tbody tr").count();
-  verifier(nets >= 8, `nets ODB++ : ${nets}`);
+  verifier(nets >= 35, `nets ODB++ : ${nets}`);
   bilan.push(`ODB++ : nomenclature et ${nets} nets`);
 
   // Comparaison A / B
@@ -134,13 +134,13 @@ try {
   const badges = await page.locator(".paire .badge").allTextContents();
   const paires = await page.locator(".paire .libelle").allTextContents();
   const differentes = paires.filter((_, i) => /zone/.test(badges[i]));
-  for (const attendu of ["Cuivre dessus", "Sérigraphie dessus", "Perçage non métallisé 1–4", "Perçage métallisé 1–4"]) verifier(differentes.includes(attendu), `différence attendue sur « ${attendu} » : ${paires.map((p, i) => `${p}=${badges[i]}`).join(", ")}`);
-  // C5 remplace R4 avec la même empreinte : masque et pâte inchangés.
-  for (const pareil of ["Masque de soudure dessus", "Pâte à braser dessus", "Contour de la carte"]) verifier(!differentes.includes(pareil), `« ${pareil} » ne devrait pas changer`);
+  for (const attendu of ["Cuivre dessus", "Sérigraphie dessus", "Perçage métallisé 1–4", "Masque de soudure dessus", "Pâte à braser dessus"]) verifier(differentes.includes(attendu), `différence attendue sur « ${attendu} » : ${paires.map((p, i) => `${p}=${badges[i]}`).join(", ")}`);
+  // Ni le contour, ni les trous de fixation, ni le vernis du dessous (pastilles traversantes) ne changent.
+  for (const pareil of ["Contour de la carte", "Perçage non métallisé 1–4", "Masque de soudure dessous"]) verifier(!differentes.includes(pareil), `« ${pareil} » ne devrait pas changer`);
   await page.screenshot({ path: path.join(captures, "comparaison-superposition.png") });
-  // Composants : R4 retiré, C5 ajouté
+  // Composants : D2 et R11 retirés, C13 ajouté, R9 et R10 changent de valeur
   const compAB = await page.locator(".composants-differences").textContent();
-  verifier(compAB.includes("R4") && compAB.includes("C5") && compAB.includes("1 ajouté") && compAB.includes("1 retiré"), `composants A/B : ${compAB}`);
+  verifier(["D2", "R11", "C13", "R9", "R10", "1 ajouté", "2 retirés"].every((t) => compAB.includes(t)), `composants A/B : ${compAB}`);
   // Zone suivante
   await page.keyboard.press("n");
   await page.waitForTimeout(600);
@@ -177,14 +177,14 @@ try {
   verifier(badges2[iComp] === "voir la liste", `Gerber ↔ ODB++ : composants ${badges2[iComp]}`);
   await page.locator(".paire .nom-couche", { hasText: "Composants dessus" }).click();
   const listeComp = await page.locator(".composants-differences").textContent();
-  verifier(listeComp.includes("11 composants sont identiques"), `composants Gerber ↔ ODB++ : ${listeComp}`);
+  verifier(listeComp.includes("47 composants sont identiques"), `composants Gerber ↔ ODB++ : ${listeComp}`);
   await page.screenshot({ path: path.join(captures, "comparaison-gerber-odb.png") });
 
   // Code-barres ODB++ (numéro de série de la carte d'exemple)
   await page.locator(".marque").click();
   await page.getByRole("button", { name: /La même en ODB\+\+/ }).click();
   await attendreEtat(page, /couches lues/);
-  await page.evaluate(() => window.__typon.allerA(21.71, 6.5, 2));
+  await page.evaluate(() => window.__typon.allerA(33.66, 5.85, 2));
   await page.waitForTimeout(800);
   const vb2 = await page.locator(".visionneuse").boundingBox();
   await page.mouse.click(vb2.x + vb2.width / 2, vb2.y + vb2.height / 2);

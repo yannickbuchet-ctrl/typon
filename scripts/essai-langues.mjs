@@ -91,8 +91,8 @@ try {
   // Les commentaires du fichier sont son contenu (en français dans la carte d'exemple) : ils restent tels quels.
   const commentaires = (await page.locator("pre.commentaires").count()) ? await page.locator("pre.commentaires").innerText() : "";
   textes.push(details.replace(commentaires, ""));
-  // Inspecteur : pastille U1 broche 2 (SDA)
-  await page.evaluate(() => window.__typon.allerA(22 - 2.7, 22 + 1.905 - 1.27, 3));
+  // Inspecteur : pastille J5 (Qwiic) broche 3 (SDA)
+  await page.evaluate(() => window.__typon.allerA(54.0, 18.0, 3));
   await page.waitForTimeout(500);
   const vb = await page.locator(".visionneuse").boundingBox();
   await page.mouse.click(vb.x + vb.width / 2, vb.y + vb.height / 2);

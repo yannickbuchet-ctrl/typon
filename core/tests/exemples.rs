@@ -162,7 +162,8 @@ fn lire_dossier(d: &Path, base: &Path, sortie: &mut Vec<Fichier>) {
 #[test]
 fn exemples_du_site() {
     let dossier = racine().join("public/exemples");
-    for (nom, couches_min, composants) in [("typon-demo-revA.zip", 13, 11), ("typon-demo-revB.zip", 13, 11), ("typon-demo-revA-odb.tgz", 12, 11)] {
+    // Révision B : LED d'alimentation D2 et sa résistance R11 retirées, condensateur C13 ajouté.
+    for (nom, couches_min, composants) in [("typon-demo-revA.zip", 13, 47), ("typon-demo-revB.zip", 13, 46), ("typon-demo-revA-odb.tgz", 12, 47)] {
         let octets = std::fs::read(dossier.join(nom)).expect("exemple absent : lancez python scripts/generer_exemples.py");
         let mut lot = Lot { fichiers: vec![Fichier { chemin: nom.into(), octets }], ..Default::default() };
         let r = analyser(&mut lot);
@@ -171,7 +172,9 @@ fn exemples_du_site() {
         assert_eq!(r["meta"]["composants"].as_array().map(|a| a.len()).unwrap_or(0), composants, "{nom} : composants");
         let b = r["meta"]["boite"].as_array().unwrap();
         let (l, h) = (b[2].as_f64().unwrap() - b[0].as_f64().unwrap(), b[3].as_f64().unwrap() - b[1].as_f64().unwrap());
-        assert!((l - 64.0).abs() < 0.01 && (h - 42.0).abs() < 0.01, "{nom} : dimensions {l} × {h}");
+        assert!((l - 60.0).abs() < 0.01 && (h - 38.0).abs() < 0.01, "{nom} : dimensions {l} × {h}");
+        let nets = r["meta"]["nets"].as_array().map(|a| a.len()).unwrap_or(0);
+        assert!(nets >= 35, "{nom} : {nets} nets");
         assert!(r["alertes"].as_array().map(|a| a.is_empty()).unwrap_or(true), "{nom} : alertes {}", r["alertes"]);
     }
 }
@@ -313,15 +316,26 @@ fn ipc2581() {
     assert!(erreurs.is_empty(), "Fichiers IPC-2581 sans dessin : {erreurs:?}");
 }
 
+/// Boîte et nombre d'objets d'un dessin, sans les régions (zones de cuivre, que le RS-274D ne sait pas décrire).
+fn hors_regions(d: &Dessin) -> (typon_core::geom::BBox, usize) {
+    let region = |objet: u32| d.info_objet(objet).map(|i| i.iter().any(|(k, v)| k == "Objet" && v == "Région")).unwrap_or(false);
+    let mut b = typon_core::geom::BBox::vide();
+    for e in d.elements.iter().filter(|e| !region(e.objet)) {
+        b.union(&e.prim.boite_englobante());
+    }
+    (b, (0..d.objets.len() as u32).filter(|&o| !region(o)).count())
+}
+
 /// Gerber RS-274D avec liste d'ouvertures séparée (roue Eagle en pouces, liste Protel en mils et zéros de fin omis) :
-/// même dessin que la version Gerber X2 de la carte d'exemple.
+/// même dessin que la version Gerber X2 de la carte d'exemple (pistes, pastilles et vias ; le RS-274D n'a pas de
+/// régions, donc pas de zones de cuivre).
 #[test]
 fn rs274d_avec_liste_d_ouvertures() {
     let reference = {
         let mut lot = Lot { fichiers: vec![Fichier { chemin: "a.zip".into(), octets: std::fs::read(racine().join("public/exemples/typon-demo-revA.zip")).unwrap() }], ..Default::default() };
         analyser(&mut lot);
         let c = lot.couches.iter().find(|c| c.nom == "Cuivre dessus").unwrap();
-        (c.dessin.boite(), c.dessin.objets.len())
+        hors_regions(&c.dessin)
     };
     for nom in ["rs274d-eagle.zip", "rs274d-protel.zip"] {
         let octets = std::fs::read(racine().join("core/tests/donnees").join(nom)).unwrap();
