@@ -206,7 +206,7 @@ export function detailsCouche(c: DescriptionCouche, unite: Unite, jeu = ""): HTM
   return racine;
 }
 
-export function onglets(doc: DocumentTypon, unite: Unite, allerA: (x: number, y: number) => void): Onglet[] {
+export function onglets(doc: DocumentTypon, unite: Unite, allerA: (x: number, y: number) => void, surlignerNet?: (nom: string) => void): Onglet[] {
   const d = doc.description;
   const r: Onglet[] = [];
   const composants = d.meta.composants ?? [];
@@ -235,7 +235,7 @@ export function onglets(doc: DocumentTypon, unite: Unite, allerA: (x: number, y:
     r.push({ id: "nets", titre: t("onglet.nets"), icone: "reseau", compte: nets.length, contenu: () => tableau(nets, [
       { titre: t("donnees.net"), valeur: (n) => n.nom },
       ...(avecCompte ? [{ titre: t("donnees.elements"), valeur: (n: { elements: number | null }) => n.elements ?? 0, nombre: true }] : []),
-    ], { csv: { jeu: doc.nom, nom: "nets" } }) });
+    ], { csv: { jeu: doc.nom, nom: "nets" }, cliquer: surlignerNet ? (n) => surlignerNet(n.nom) : undefined }) });
   }
   const outilsOdb = d.meta.odb?.outils ?? [];
   const percages = d.couches.filter((c) => c.meta.outils?.length);

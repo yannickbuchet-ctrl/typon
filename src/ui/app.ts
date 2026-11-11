@@ -14,6 +14,7 @@ import { icone, LOGO } from "./icones";
 import { detailsCouche, onglets, resume, type Onglet } from "./panneaux";
 import { Visionneuse, type Panneau, type Pointeur } from "./visionneuse";
 import { Vue3D } from "./vue3d";
+import { Fabrication } from "./fabrication";
 
 type Outil = "info" | "mesure";
 type Affichage = "superposition" | "cote" | "alterner";
@@ -46,6 +47,22 @@ export class App {
   private ongletActif = "carte";
   private comparaison: { paires: Paire[]; choisie: number; affichage: Affichage; montrerB: boolean; zone: number; decalage: { dx: number; dy: number }; aligner: boolean; tolerance: number; analyse: boolean } | null = null;
   private occupe = 0;
+  /** Nets, DFM et mise en panneau (voir fabrication.ts). */
+  private fab = new Fabrication({
+    doc: () => this.docA,
+    unite: () => this.unite,
+    rendu: () => this.vue().rendu,
+    allerA: (x, y, taille) => this.allerA(x, y, taille),
+    ajuster: (b) => this.vue().ajuster(b),
+    redessiner: () => this.vue().redessiner(),
+    message: (texte, genre) => this.message(texte, genre),
+    attendre: (texte, travail) => this.attendre(texte, travail),
+    ouvrirFichiers: (f, role, nom) => this.ouvrirFichiers(f, role, nom),
+    montrerOnglet: (id) => {
+      this.ongletActif = id;
+      this.afficherPanneauDroit();
+    },
+  });
   private confidentialite: HTMLElement;
 
   constructor(racine: HTMLElement) {
@@ -123,6 +140,7 @@ export class App {
     }
     if (role === "A") {
       this.fermer3d();
+      this.fab.effacer();
       this.docA?.fermer(this.vue().rendu);
       this.docA = doc;
       if (this.comparaison && this.docB) this.demarrerComparaison();
@@ -198,6 +216,7 @@ export class App {
       else if (k === "b") this.retourner();
       else if (k === "m") this.choisirOutil(this.outil === "mesure" ? "info" : "mesure");
       else if (k === "escape") {
+        this.fab.effacerNet();
         this.selection = null;
         this.mesure = { panneau: 0 };
         this.vue().redessiner();
@@ -281,16 +300,22 @@ export class App {
         }, { texte: this.comparaison.montrerB ? t("barre.bAffichee") : t("barre.aAffichee"), classe: "bascule" }));
       } else {
         elements.push(el("div", { class: "pastilles-docs" }, this.pastille("", this.docA)));
-        elements.push(b("ouvrir", t("barre.ouvrirAutres"), async () => this.ouvrirFichiers(await this.choisirFichiers()), { texte: t("barre.ouvrir") }));
+        elements.push(b("ouvrir", t("barre.ouvrirAutres"), async () => this.ouvrirFichiers(await this.choisirFichiers()), { texte: t("barre.ouvrir"), classe: "compact" }));
         elements.push(b("comparer", t("barre.comparerAvec"), async () => {
           this.comparaison = { paires: [], choisie: 0, affichage: "superposition", montrerB: false, zone: -1, decalage: { dx: 0, dy: 0 }, aligner: true, tolerance: 0.05, analyse: false };
           this.afficher();
           this.message(t("etat.choisirB"));
           const f = await this.choisirFichiers();
           if (f.length) await this.ouvrirFichiers(f, "B");
-        }, { texte: t("barre.comparer") }));
+        }, { texte: t("barre.comparer"), classe: "compact" }));
         elements.push(b("cube", this.en3d ? t("3d.revenir2d") : t("3d.voir"), () => this.basculer3d(), { texte: "3D", actif: this.en3d }));
-        elements.push(b("pdf", t("fiche.titre"), () => void this.fiche(), { texte: t("fiche.bouton") }));
+        elements.push(b("pdf", t("fiche.titre"), () => void this.fiche(), { texte: t("fiche.bouton"), classe: "compact" }));
+        elements.push(b("dfm", langue() === "en" ? "Design for manufacturing checks (DFM)" : "Vérifications de fabricabilité (DFM)", () => {
+          this.ongletActif = "dfm";
+          this.racine.classList.add("panneau-droit-ouvert");
+          this.afficherPanneauDroit();
+        }, { texte: "DFM", actif: this.ongletActif === "dfm", classe: "compact" }));
+        elements.push(b("panneau", langue() === "en" ? "Panelize the board" : "Mettre la carte en panneau", () => this.fab.dialoguePanneau(), { texte: langue() === "en" ? "Panel" : "Panneau", classe: "compact" }));
       }
       elements.push(el("span", { class: "espace" }));
       if (this.en3d && this.vue3d) {
@@ -448,6 +473,7 @@ export class App {
       this.docB?.fermer(this.visionneuse.rendu);
     }
     this.fermer3d();
+    this.fab.effacer();
     this.en3d = false;
     this.docA = this.docB = null;
     this.comparaison = null;
@@ -555,7 +581,10 @@ export class App {
   private panneaux(): Panneau[] {
     if (!this.docA) return [];
     const cmp = this.comparaison;
-    if (!cmp || !this.docB) return [{ de: 0, a: 1, scene: { couches: this.affichees(this.docA.couches) } }];
+    if (!cmp || !this.docB) {
+      const ids = this.ordre(this.docA.couches).reverse().filter((c) => c.visible).map((c) => c.desc.id);
+      return [{ de: 0, a: 1, scene: { couches: this.fab.appliquerNet(this.affichees(this.docA.couches), ids) } }];
+    }
     const dec = cmp.decalage;
     const paire = cmp.paires[cmp.choisie];
     const contourA = this.docA.couches.filter((c) => c.desc.role.genre === "contour" && c.gpu);
@@ -578,6 +607,7 @@ export class App {
 
   private dessinerSurcouche(ctx: CanvasRenderingContext2D, versEcran: (x: number, y: number, panneau?: number) => [number, number]) {
     const r = window.devicePixelRatio || 1;
+    if (!this.comparaison) this.fab.dessinerMarques(ctx, (x, y) => versEcran(x, y, 0));
     const nbPanneaux = this.panneaux().length;
     // Zones de différence
     const cmp = this.comparaison;
@@ -770,7 +800,11 @@ export class App {
     liste.push({ id: "inspecteur", titre: t("onglet.inspecteur"), icone: "info", contenu: () => this.inspecteur() });
     liste.push({ id: "carte", titre: t("onglet.carte"), icone: "carte", contenu: () => resume(doc, this.unite) });
     liste.push({ id: "fichiers", titre: t("onglet.fichiers"), icone: "fichier", compte: doc.couches.length, contenu: () => this.panneauFichiers(doc) });
-    liste.push(...onglets(doc, this.unite, (x, y) => this.allerA(x, y)));
+    liste.push(...onglets(doc, this.unite, (x, y) => this.allerA(x, y), this.comparaison ? undefined : (nom) => void this.fab.surlignerNet(nom)));
+    if (!this.comparaison) {
+      if (this.fab.netSurligne) liste.push({ id: "net", titre: "Net", icone: "reseau", contenu: () => this.fab.ongletNet() });
+      liste.push({ id: "dfm", titre: "DFM", icone: "dfm", contenu: () => this.fab.ongletDfm() });
+    }
     if (this.ongletActif.startsWith("couche:")) {
       const id = Number(this.ongletActif.slice(7));
       const c = doc.couches.find((x) => x.desc.id === id);
@@ -801,7 +835,9 @@ export class App {
     for (const [k, v] of s.objet.info) dl.append(el("dt", { text: tm(k) }), el("dd", { text: tm(v) }));
     dl.append(el("dt", { text: t("inspecteur.centre") }), el("dd", { text: t("inspecteur.position", { x: longueur((b[0] + b[2]) / 2, this.unite), y: longueur((b[1] + b[3]) / 2, this.unite) }) }));
     dl.append(el("dt", { text: t("inspecteur.encombrement") }), el("dd", { text: `${longueur(b[2] - b[0], this.unite)} × ${longueur(b[3] - b[1], this.unite)}` }));
-    return el("div", {}, el("section", { class: "bloc" }, el("h3", { text: t("inspecteur.objet") }), dl));
+    const net = s.objet.info.find(([k]) => k === "Net")?.[1];
+    const bouton = net && !this.comparaison ? el("div", { class: "actions" }, el("button", { type: "button", class: "bouton", html: `${icone("reseau", 16)}<span>${langue() === "en" ? "Highlight this net" : "Surligner ce net"}</span>`, onclick: () => void this.fab.surlignerNet(net) })) : null;
+    return el("div", {}, el("section", { class: "bloc" }, el("h3", { text: t("inspecteur.objet") }), dl, bouton));
   }
 
   private panneauFichiers(doc: DocumentTypon): HTMLElement {

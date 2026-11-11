@@ -61,6 +61,39 @@ Eagle, OrCAD, LibrePCB).
   (séparateur « ; », virgule décimale, UTF-8) et contient toutes les lignes, même celles que le filtre masque ou que
   l'affichage limite, dans l'ordre du tri choisi.
 
+### Nets
+
+Dans l'inspecteur (clic sur une piste ou une pastille), **Surligner ce net**, ou un clic sur une ligne de l'onglet
+**Nets** : le net ressort en blanc sur toutes les couches visibles, les autres couches sont estompées, et l'onglet
+**Net** donne la longueur de ses pistes par couche (sur l'axe des segments, sans les plans ni la traversée des vias),
+ses pastilles, ses surfaces et ses trous. **Échap** efface le surlignage. Les nets viennent des attributs Gerber X2,
+de l'ODB++ et de l'IPC-2581.
+
+### Vérifications de fabricabilité (DFM)
+
+Le bouton **DFM** ouvre l'onglet des règles : un profil de fabricant (JLCPCB, PCBWay, Eurocircuits classe 6,
+OSH Park, ou « prudent ») règle les seuils, modifiables un par un. Chaque couche est aplatie en îlots (polarités
+comprises), puis Typon vérifie :
+
+- largeur des pistes, isolement entre îlots de cuivre de nets différents, **courts-circuits possibles** (un îlot qui
+  porte deux nets : une vraie erreur, ou une liaison volontaire entre nets) ;
+- anneau annulaire et pastille absente des trous métallisés sur les faces qu'ils atteignent (vias borgnes compris),
+  perçage minimum, écart entre trous ;
+- cuivre au bord de la carte et près des trous non métallisés ;
+- ponts de vernis entre ouvertures ;
+- sérigraphie : traits trop fins, sur une ouverture du vernis, hors de la carte.
+
+Un clic sur une règle marque ses défauts sur la carte (cercle rouge, orange ou jaune selon la gravité), un clic sur un
+défaut le centre. Le **rapport PDF** donne le bilan par règle, les vues de dessus et de dessous avec les marques, et la
+liste des défauts. Les valeurs des profils sont indicatives : vérifiez les capacités exactes du fabricant.
+
+### Mise en panneau
+
+Le bouton **Panneau** répète la carte en lignes et en colonnes, avec des bords de manutention, des mires optiques, des
+trous d'outillage et une séparation par **rainures en V** ou par **fraisage avec languettes perforées**. Le panneau est
+écrit en Gerber X2 et Excellon dans une archive ZIP (quel que soit le format d'origine : un ODB++ ou un IPC-2581
+devient ainsi des Gerber), téléchargeable, ou rouvert aussitôt dans Typon pour l'aperçu (vue 3D comprise).
+
 ### Fiche PDF de la carte
 
 Le bouton **Fiche PDF** produit un document de description de la carte : vue 3D et caractéristiques (dimensions,
@@ -172,12 +205,13 @@ python scripts/generer_exemples.py        # cartes d'exemple du site (public/exe
 node scripts/telecharger-exemples.mjs     # fichiers publics de test (Ucamco, ODB++), hors du dépôt
 cd core && cargo test --release -- --nocapture
 node scripts/essai-navigateur.mjs         # après npm run build : parcours complet dans Chromium
+node scripts/essai-fabrication.mjs        # après npm run build : nets, DFM et rapport, panneau
 node scripts/essai-fiche.mjs              # après npm run build : fiche PDF de plusieurs cartes
 node scripts/essai-3d.mjs                 # après npm run build : vue 3D (exemples, et exemples externes s'il y en a)
 node scripts/essai-csv.mjs                # après npm run build : export CSV de chaque tableau
 ```
 
-Les essais dans le navigateur prennent leur port dans la variable `PORT_ESSAI` (4191, 4192 et 4193 par défaut).
+Les essais dans le navigateur prennent leur port dans la variable `PORT_ESSAI` (de 4191 à 4197 par défaut).
 
 Les essais du moteur comparent le rendu des fichiers de test de la norme Gerber (Ucamco) à leurs images de
 référence, lisent tous les jeux d'exemple (cartes KiCad et LibrePCB en X2/X3, XNC, fichiers de job, ODB++ officiel

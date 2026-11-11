@@ -116,6 +116,34 @@ export interface Zone {
   b: number;
 }
 
+export interface InfoNet {
+  nom: string;
+  couches: { id: number; nom: string; genre: Genre; longueur: number; traits: number; pastilles: number; surfaces: number }[];
+  /** Longueur des pistes sur les couches de cuivre (axe des segments), en mm. */
+  longueur: number;
+  trous: number;
+  boite: [number, number, number, number] | null;
+}
+
+export interface DefautDfm {
+  regle: string;
+  couche: string;
+  x: number;
+  y: number;
+  valeur: number;
+  limite: number;
+  details: string;
+}
+
+export interface ResultatDfm {
+  resultats: DefautDfm[];
+  comptes: Record<string, number>;
+  verifiees: string[];
+  contour: boolean;
+  trous: number;
+  duree: number;
+}
+
 export interface Modele3d {
   anneaux: [number, number][][];
   /** « contour » (tracé de la carte) ou « rectangle » (pas de contour fermé : rectangle englobant). */
@@ -179,6 +207,28 @@ class Moteur {
   async modele3d(lot: number): Promise<Modele3d> {
     const r = await this.appel<{ modele: Omit<Modele3d, "triangles">; donnees: ArrayBuffer }>({ op: "modele3d", lot });
     return { ...r.modele, triangles: new Float32Array(r.donnees) };
+  }
+
+  /** Géométrie des seuls éléments d'un net sur une couche (pour le surligner). */
+  async netGeometrie(lot: number, couche: number, nom: string): Promise<Geometrie> {
+    const r = await this.appel<{ geometrie: { lots: LotGeometrie[]; boite: [number, number, number, number] }; donnees: ArrayBuffer }>({ op: "netGeometrie", lot, couche, nom });
+    return { ...r.geometrie, donnees: new Float32Array(r.donnees) };
+  }
+
+  /** Longueur des pistes d'un net par couche, pastilles, surfaces et trous. */
+  netInfo(lot: number, nom: string): Promise<InfoNet> {
+    return this.appel({ op: "netInfo", lot, nom });
+  }
+
+  /** Vérifications de fabricabilité, avec les seuils donnés (mm). */
+  dfm(lot: number, regles: Record<string, number>): Promise<ResultatDfm> {
+    return this.appel({ op: "dfm", lot, regles });
+  }
+
+  /** Panneau : fichiers Gerber et Excellon dans une archive ZIP. */
+  async panneau(lot: number, params: Record<string, unknown>): Promise<{ panneau: { fichiers?: string[]; largeur?: number; hauteur?: number; cartes?: number; erreur?: string }; zip: Uint8Array }> {
+    const r = await this.appel<{ panneau: { erreur?: string }; donnees: ArrayBuffer }>({ op: "panneau", lot, params });
+    return { panneau: r.panneau, zip: new Uint8Array(r.donnees) };
   }
 
   fermer(lot: number): Promise<void> {

@@ -18,6 +18,10 @@ interface Exports {
   objet_sous(lot: number, couche: number, x: number, y: number, tol: number): number;
   zones_difference(masque: number, largeur: number, hauteur: number, fusion: number, minimum: number): number;
   modele_3d(lot: number): number;
+  net_geometrie(lot: number, couche: number, nom: number, nomN: number): number;
+  net_info(lot: number, nom: number, nomN: number): number;
+  dfm_verifier(lot: number, regles: number, reglesN: number): number;
+  panneau(lot: number, params: number, paramsN: number): number;
 }
 
 let moteur: Promise<Exports> | null = null;
@@ -59,6 +63,10 @@ type Demande =
   | { op: "objet"; lot: number; couche: number; x: number; y: number; tol: number }
   | { op: "zones"; masque: ArrayBuffer; largeur: number; hauteur: number; fusion: number; minimum: number }
   | { op: "modele3d"; lot: number }
+  | { op: "netGeometrie"; lot: number; couche: number; nom: string }
+  | { op: "netInfo"; lot: number; nom: string }
+  | { op: "dfm"; lot: number; regles: Record<string, number> }
+  | { op: "panneau"; lot: number; params: Record<string, unknown> }
   | { op: "fermer"; lot: number };
 
 self.onmessage = async (e: MessageEvent<{ id: number } & Demande>) => {
@@ -99,6 +107,36 @@ self.onmessage = async (e: MessageEvent<{ id: number } & Demande>) => {
       case "modele3d": {
         const { json, donnees } = lire(m, m.modele_3d(d.lot));
         resultat = { modele: json, donnees };
+        transferts.push(donnees);
+        break;
+      }
+      case "netGeometrie": {
+        const [p, n] = copier(m, encodeur.encode(d.nom));
+        const { json, donnees } = lire(m, m.net_geometrie(d.lot, d.couche, p, n));
+        m.dealloc(p, n);
+        resultat = { geometrie: json, donnees };
+        transferts.push(donnees);
+        break;
+      }
+      case "netInfo": {
+        const [p, n] = copier(m, encodeur.encode(d.nom));
+        resultat = lire(m, m.net_info(d.lot, p, n)).json;
+        m.dealloc(p, n);
+        break;
+      }
+      case "dfm": {
+        const [p, n] = copier(m, encodeur.encode(JSON.stringify(d.regles)));
+        const t0 = performance.now();
+        const json = lire(m, m.dfm_verifier(d.lot, p, n)).json as Record<string, unknown>;
+        m.dealloc(p, n);
+        resultat = { ...json, duree: performance.now() - t0 };
+        break;
+      }
+      case "panneau": {
+        const [p, n] = copier(m, encodeur.encode(JSON.stringify(d.params)));
+        const { json, donnees } = lire(m, m.panneau(d.lot, p, n));
+        m.dealloc(p, n);
+        resultat = { panneau: json, donnees };
         transferts.push(donnees);
         break;
       }

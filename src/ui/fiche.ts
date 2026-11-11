@@ -11,7 +11,7 @@ import type { DocumentTypon, EtatCouche } from "./document";
 import { longueur, nombre, taille, telecharger, type Unite } from "./dom";
 import { Vue3D } from "./vue3d";
 
-interface Options {
+export interface Options {
   doc: DocumentTypon;
   rendu: Rendu;
   unite: Unite;
@@ -55,7 +55,7 @@ function couchesDuCote(doc: DocumentTypon, cote: "dessus" | "dessous"): EtatCouc
 }
 
 /** Rend un côté de la carte en 2D (couleurs de la visionneuse) et renvoie l'image PNG. */
-async function vue2d(o: Options, cote: "dessus" | "dessous", boite: [number, number, number, number], largeur: number, hauteur: number): Promise<Uint8Array> {
+export async function vue2d(o: Options, cote: "dessus" | "dessous", boite: [number, number, number, number], largeur: number, hauteur: number): Promise<Uint8Array> {
   const couches = couchesDuCote(o.doc, cote);
   await Promise.all(couches.map((c) => o.doc.gpu(o.rendu, c)));
   const affichees: CoucheAffichee[] = couches.filter((c) => c.gpu).map((c) => ({ gpu: c.gpu!, couleur: couleurRgb(c.couleur), opacite: c.opacite }));

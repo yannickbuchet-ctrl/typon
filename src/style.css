@@ -271,3 +271,41 @@ body.depot-actif::after { content: "Déposez pour ouvrir"; position: fixed; inse
 .legende-3d { position: absolute; left: 12px; bottom: 10px; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px 14px; max-width: calc(100% - 24px); font-size: 12px; color: rgba(232, 237, 244, 0.78); pointer-events: none; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
 .legende-3d .aide { opacity: 0.75; }
 @media (max-width: 700px) { .legende-3d .aide { display: none; } }
+
+/* Nets, DFM et panneau */
+.nom-net { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.95rem; color: var(--accent-2); margin: 0 0 8px; word-break: break-all; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.dfm select { width: 100%; height: 32px; border-radius: 8px; border: 1px solid var(--bord); background: var(--fond-2); color: var(--texte); padding: 0 8px; }
+.details-seuils { margin: 10px 0 4px; }
+.details-seuils summary { cursor: pointer; color: var(--texte-2); font-size: 0.85rem; }
+.seuils { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.seuil { display: grid; grid-template-columns: 1fr 78px auto; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--texte-2); }
+.seuil input { height: 28px; border-radius: 6px; border: 1px solid var(--bord); background: var(--fond-2); color: var(--texte); padding: 0 6px; text-align: right; }
+.seuil .unite { color: var(--texte-3); font-size: 0.75rem; }
+.regles-dfm { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.regles-dfm .regle { width: 100%; display: grid; grid-template-columns: 2.6em 1fr auto; align-items: center; gap: 8px; text-align: left; padding: 6px 8px; border-radius: 7px; border: 1px solid transparent; background: transparent; color: var(--texte); cursor: pointer; font-size: 0.84rem; }
+.regles-dfm .regle:hover:not(:disabled) { background: var(--panneau-2); }
+.regles-dfm .regle.actif { border-color: var(--accent); background: var(--panneau-2); }
+.regles-dfm .regle:disabled { cursor: default; color: var(--texte-2); }
+.etat-regle { display: inline-flex; justify-content: center; min-width: 2.2em; padding: 1px 6px; border-radius: 99px; font-size: 0.75rem; font-weight: 700; }
+.etat-regle.erreur { background: rgba(255, 90, 90, 0.18); color: var(--rouge); }
+.etat-regle.avertissement { background: rgba(255, 179, 71, 0.18); color: var(--accent-2); }
+.etat-regle.info { background: rgba(255, 209, 102, 0.16); color: var(--jaune); }
+.etat-regle.ok { background: rgba(64, 235, 115, 0.14); color: var(--vert); }
+.etat-regle.non { color: var(--texte-3); }
+.seuil-regle { color: var(--texte-3); font-size: 0.75rem; }
+.succes-dfm { color: var(--vert); }
+.defauts-dfm button.actif { border-color: var(--accent); }
+.dialogue { border: 1px solid var(--bord); border-radius: 14px; background: var(--panneau); color: var(--texte); padding: 20px 22px; width: min(560px, calc(100vw - 32px)); box-shadow: var(--ombre); }
+.dialogue::backdrop { background: rgba(0, 0, 0, 0.55); }
+.dialogue h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 1.1rem; }
+.grille-panneau { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin: 14px 0; }
+.grille-panneau .case { grid-column: 1 / -1; }
+.grille-panneau input[type="number"], .grille-panneau select { height: 32px; border-radius: 8px; border: 1px solid var(--bord); background: var(--fond-2); color: var(--texte); padding: 0 8px; }
+.taille-panneau { font-weight: 650; color: var(--accent-2); }
+.dialogue .actions { justify-content: flex-end; }
+@media (max-width: 560px) { .grille-panneau { grid-template-columns: 1fr; } }
+
+/* Barre : les boutons secondaires perdent leur texte quand la place manque (le titre reste en infobulle). */
+@media (max-width: 1700px) { .barre .bouton.compact span { display: none; } .barre .bouton.compact { padding: 0 10px; } }
+.tableau-net th { padding: 7px 8px; font-weight: 600; color: var(--texte-2); position: static; }

@@ -375,3 +375,62 @@ fn code_barres_odb() {
     let barres = c.dessin.elements.iter().filter(|e| matches!(e.prim, typon_core::geom::Prim::Boite { .. })).count();
     assert!(barres >= 50, "{barres} barres");
 }
+
+/// DFM sur la carte d'exemple (Gerber et ODB++) et sur les exemples externes présents : durée et nombre de résultats
+/// par règle. La carte d'exemple doit passer les règles d'un fabricant courant sans court-circuit.
+#[test]
+fn dfm() {
+    let regles = typon_core::dfm::Regles::depuis(&serde_json::json!({}));
+    let mut jeux: Vec<(String, PathBuf)> = vec![
+        ("demo-gerber".into(), racine().join("public/exemples/typon-demo-revA.zip")),
+        ("demo-odb".into(), racine().join("public/exemples/typon-demo-revA-odb.tgz")),
+    ];
+    for f in ["ipc2581/royalblue54l-feather.xml", "odb/sandbox-odb_wifi.tgz", "odb/designodb_rigidflex.tgz", "ucamco/gerber-layer-format-x3-li-ion-charger.zip"] {
+        let p = exemples().join(f);
+        if p.exists() {
+            jeux.push((f.into(), p));
+        }
+    }
+    for (nom, chemin) in jeux {
+        let octets = std::fs::read(&chemin).unwrap();
+        let mut lot = Lot { fichiers: vec![Fichier { chemin: chemin.file_name().unwrap().to_string_lossy().into(), octets }], ..Default::default() };
+        analyser(&mut lot);
+        let t0 = Instant::now();
+        let r = typon_core::dfm::verifier(&lot.couches, &regles);
+        println!("DFM {nom} : {:.2} s, vérifiées {}, comptes {}", t0.elapsed().as_secs_f64(), r["verifiees"], r["comptes"]);
+        for x in r["resultats"].as_array().unwrap().iter().filter(|x| x["regle"] == "court" || x["regle"] == "isolement").take(6) {
+            println!("   {x}");
+        }
+        if nom.starts_with("demo") {
+            assert!(r["verifiees"].as_array().unwrap().len() >= 8, "{nom} : règles vérifiées {}", r["verifiees"]);
+        }
+    }
+}
+
+/// Panneau 3 × 2 de la carte d'exemple : relu par le moteur, il doit donner les mêmes couches, aux bonnes dimensions,
+/// avec six fois les trous de la carte (plus les trous du panneau).
+#[test]
+fn panneau() {
+    let octets = std::fs::read(racine().join("public/exemples/typon-demo-revA.zip")).unwrap();
+    let mut lot = Lot { fichiers: vec![Fichier { chemin: "demo.zip".into(), octets }], ..Default::default() };
+    let r = analyser(&mut lot);
+    let n_couches = r["couches"].as_array().unwrap().len();
+    for separation in ["fraisage", "vscore"] {
+        let p = serde_json::json!({"nx": 3, "ny": 2, "separation": separation, "bord": 5, "bords": "haut-bas"});
+        let (j, zip) = typon_core::fabrication::panneau(&lot.couches, &p).unwrap();
+        println!("Panneau {separation} : {}", j);
+        let mut lot2 = Lot { fichiers: vec![Fichier { chemin: "panneau.zip".into(), octets: zip }], ..Default::default() };
+        let r2 = analyser(&mut lot2);
+        let n2 = r2["couches"].as_array().unwrap().len();
+        assert!(n2 + 2 >= n_couches, "{separation} : {n2} couches relues pour {n_couches}");
+        assert!(r2["alertes"].as_array().map(|a| a.is_empty()).unwrap_or(true), "{separation} : alertes {}", r2["alertes"]);
+        let b = r2["meta"]["boite"].as_array().unwrap();
+        let (l, h) = (b[2].as_f64().unwrap() - b[0].as_f64().unwrap(), b[3].as_f64().unwrap() - b[1].as_f64().unwrap());
+        assert!((l - j["largeur"].as_f64().unwrap()).abs() < 0.2 && (h - j["hauteur"].as_f64().unwrap()).abs() < 0.2, "{separation} : {l} × {h} pour {}", j);
+        let trous = |r: &serde_json::Value| r["couches"].as_array().unwrap().iter().filter(|c| c["role"]["genre"] == "percage").map(|c| c["meta"]["trous"].as_u64().unwrap_or(0)).sum::<u64>();
+        assert!(trous(&r2) >= 6 * trous(&r), "{separation} : {} trous pour {}", trous(&r2), trous(&r));
+        // Le cuivre du dessus : six fois les objets de la carte (et les mires).
+        let objets = |r: &serde_json::Value| r["couches"].as_array().unwrap().iter().find(|c| c["role"]["genre"] == "cuivre" && c["role"]["cote"] == "dessus").map(|c| c["objets"].as_u64().unwrap_or(0)).unwrap_or(0);
+        println!("  cuivre dessus : {} objets pour {} ; trous {} pour {}", objets(&r2), objets(&r), trous(&r2), trous(&r));
+    }
+}

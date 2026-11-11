@@ -6,6 +6,8 @@
 
 pub mod archive;
 pub mod couches;
+pub mod dfm;
+pub mod fabrication;
 pub mod excellon;
 pub mod geom;
 pub mod gerber;
@@ -211,6 +213,102 @@ pub extern "C" fn modele_3d(lot: u32) -> *mut u8 {
         let donnees: Vec<u8> = tris.iter().flat_map(|v| v.to_le_bytes()).collect();
         let anneaux_json: Vec<Value> = tous.iter().map(|a| json!(a.iter().map(|p| [p.x, p.y]).collect::<Vec<_>>())).collect();
         sortie(&json!({"anneaux": anneaux_json, "source": source}), &donnees)
+    })
+}
+
+/// Le net `nom` porte-t-il cet objet ?
+fn objet_du_net(d: &Dessin, objet: u32, nom: &str) -> bool {
+    d.info_objet(objet).map(|i| i.iter().any(|(k, v)| k == "Net" && v == nom)).unwrap_or(false)
+}
+
+/// Géométrie (pour WebGL) des seuls éléments du net `nom` sur une couche : pour le surligner.
+///
+/// # Safety
+/// `nom` doit pointer sur `nom_n` octets UTF-8 alloués par `alloc`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_geometrie(lot: u32, couche: u32, nom: *const u8, nom_n: usize) -> *mut u8 {
+    let nom = unsafe { texte(nom, nom_n) };
+    LOTS.with(|l| {
+        let l = l.borrow();
+        let Some(c) = l.get(&lot).and_then(|x| x.couches.get(couche as usize)) else { return sortie(&json!({"erreur": "Couche inconnue."}), &[]) };
+        let mut d = Dessin::default();
+        let o = d.nouvel_objet(Vec::new());
+        for e in c.dessin.elements.iter().filter(|e| e.sombre && objet_du_net(&c.dessin, e.objet, &nom)) {
+            d.ajoute(e.prim.clone(), true, o);
+        }
+        let (j, octets) = geometrie(&d);
+        sortie(&j, &octets)
+    })
+}
+
+/// Un net : longueur de ses pistes (axe des segments) par couche de cuivre, nombre de pastilles et de trous.
+///
+/// # Safety
+/// `nom` doit pointer sur `nom_n` octets UTF-8 alloués par `alloc`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn net_info(lot: u32, nom: *const u8, nom_n: usize) -> *mut u8 {
+    let nom = unsafe { texte(nom, nom_n) };
+    LOTS.with(|l| {
+        let l = l.borrow();
+        let Some(lot) = l.get(&lot) else { return sortie(&json!({"erreur": "Lot inconnu."}), &[]) };
+        let mut couches = Vec::new();
+        let (mut total, mut trous) = (0.0, 0usize);
+        let mut boite = BBox::vide();
+        for (id, c) in lot.couches.iter().enumerate() {
+            let (mut longueur, mut traits, mut pastilles, mut surfaces) = (0.0, 0usize, 0usize, 0usize);
+            for e in c.dessin.elements.iter().filter(|e| e.sombre && objet_du_net(&c.dessin, e.objet, &nom)) {
+                boite.union(&e.prim.boite_englobante());
+                match &e.prim {
+                    Prim::Cap { a, b, .. } if a.dist(*b) > 1e-9 => {
+                        longueur += a.dist(*b);
+                        traits += 1;
+                    }
+                    Prim::Poly { .. } => surfaces += 1,
+                    _ => pastilles += 1,
+                }
+            }
+            if traits + pastilles + surfaces == 0 {
+                continue;
+            }
+            if c.role.genre == Genre::Percage || c.role.genre == Genre::Fraisage {
+                trous += pastilles + traits;
+            } else if c.role.genre == Genre::Cuivre {
+                total += longueur;
+            }
+            couches.push(json!({"id": id, "nom": c.nom, "genre": c.role.genre, "longueur": longueur, "traits": traits, "pastilles": pastilles, "surfaces": surfaces}));
+        }
+        sortie(&json!({"nom": nom, "couches": couches, "longueur": total, "trous": trous, "boite": if boite.est_vide() { Value::Null } else { json!(boite.tableau()) }}), &[])
+    })
+}
+
+/// Vérifications de fabricabilité (voir dfm.rs) ; `regles` : seuils en JSON.
+///
+/// # Safety
+/// `regles` doit pointer sur `regles_n` octets UTF-8 alloués par `alloc`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dfm_verifier(lot: u32, regles: *const u8, regles_n: usize) -> *mut u8 {
+    let regles: Value = serde_json::from_str(&unsafe { texte(regles, regles_n) }).unwrap_or(Value::Null);
+    LOTS.with(|l| {
+        let l = l.borrow();
+        let Some(lot) = l.get(&lot) else { return sortie(&json!({"erreur": "Lot inconnu."}), &[]) };
+        sortie(&dfm::verifier(&lot.couches, &dfm::Regles::depuis(&regles)), &[])
+    })
+}
+
+/// Panneau (voir fabrication.rs) : fichiers Gerber X2 et Excellon du panneau, dans une archive ZIP (données).
+///
+/// # Safety
+/// `params` doit pointer sur `params_n` octets UTF-8 alloués par `alloc`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn panneau(lot: u32, params: *const u8, params_n: usize) -> *mut u8 {
+    let params: Value = serde_json::from_str(&unsafe { texte(params, params_n) }).unwrap_or(Value::Null);
+    LOTS.with(|l| {
+        let l = l.borrow();
+        let Some(lot) = l.get(&lot) else { return sortie(&json!({"erreur": "Lot inconnu."}), &[]) };
+        match fabrication::panneau(&lot.couches, &params) {
+            Ok((j, zip)) => sortie(&j, &zip),
+            Err(e) => sortie(&json!({"erreur": e}), &[]),
+        }
     })
 }
 
