@@ -222,6 +222,7 @@ export class App {
         this.vue().redessiner();
         this.afficherPanneauDroit();
       } else if (this.comparaison && (k === "n" || k === "p")) this.allerZone(this.comparaison.zone + (k === "n" ? 1 : -1));
+      else if (!this.comparaison && (k === "n" || k === "p") && this.fab.aDesResultats) this.fab.suivant(k === "n" ? 1 : -1);
       else if (this.comparaison && k === " ") {
         e.preventDefault();
         this.comparaison.montrerB = !this.comparaison.montrerB;

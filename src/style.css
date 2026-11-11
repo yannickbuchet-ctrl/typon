@@ -316,3 +316,10 @@ body.depot-actif::after { content: "Déposez pour ouvrir"; position: fixed; inse
 .limites-dfm summary { cursor: pointer; }
 .limites-dfm ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .perte-contexte { position: absolute; inset: 0; z-index: 6; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; background: rgba(10, 14, 19, 0.92); color: var(--texte); }
+.navigation-dfm { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
+.navigation-dfm .position-dfm { flex: 1; text-align: center; font-variant-numeric: tabular-nums; color: var(--texte-2); font-size: 0.85rem; }
+.defaut-choisi { margin: 0 0 8px; padding: 7px 9px; border-radius: 8px; background: var(--panneau-2); border-left: 3px solid var(--accent); font-size: 0.84rem; }
+.defauts-dfm { max-height: 260px; overflow-y: auto; }
+.defauts-dfm button { display: flex !important; grid-template-columns: none !important; gap: 8px; align-items: baseline; text-align: left; width: 100%; }
+.defauts-dfm button strong { flex: none; min-width: 2em; }
+.defauts-dfm button span { flex: 1; }

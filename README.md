@@ -83,8 +83,9 @@ comprises), puis Typon vérifie :
 - ponts de vernis entre ouvertures ;
 - sérigraphie : traits trop fins, sur une ouverture du vernis, hors de la carte.
 
-Un clic sur une règle marque ses défauts sur la carte (cercle rouge, orange ou jaune selon la gravité), un clic sur un
-défaut le centre. Le **rapport PDF** donne le bilan par règle, les vues de dessus et de dessous avec les marques, et la
+Un clic sur une règle marque ses défauts sur la carte (cercle rouge, orange ou jaune selon la gravité) et cadre le
+premier de près, entouré d'un halo et d'une étiquette (règle et mesure). **Suivant** et **Précédent** (touches **N** et
+**P**) parcourent les défauts un à un, puis passent à la règle suivante. Le **rapport PDF** donne le bilan par règle, les vues de dessus et de dessous avec les marques, et la
 liste des défauts. Les valeurs des profils sont indicatives : vérifiez les capacités exactes du fabricant.
 
 ### Mise en panneau
@@ -179,7 +180,7 @@ Ces fichiers sont générés par `scripts/generer_exemples.py`.
 | Flèches | Déplacer la vue |
 | 1, 2, 3 | Comparaison : superposition, côte à côte, alternance |
 | Espace | Comparaison en alternance : passer de A à B |
-| N et P | Zone de différence suivante ou précédente |
+| N et P | Zone de différence suivante ou précédente ; défaut DFM suivant ou précédent |
 
 ## Limites connues
 

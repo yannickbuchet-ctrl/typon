@@ -227,10 +227,15 @@ export class Fabrication {
       const n = r.comptes[regle] ?? 0;
       const g = REGLES[regle].gravite;
       liste.append(el("li", {}, el("button", { type: "button", class: `regle ${d.regle === regle ? "actif" : ""}`, disabled: !n, onclick: () => {
-        d.regle = d.regle === regle ? null : regle;
-        d.choisi = -1;
-        this.hote.montrerOnglet("dfm");
-        this.hote.redessiner();
+        if (d.regle === regle) {
+          d.regle = null;
+          d.choisi = -1;
+          this.hote.montrerOnglet("dfm");
+          this.hote.redessiner();
+        } else {
+          d.regle = regle;
+          this.allerDefaut(0);
+        }
       } }, el("span", { class: `etat-regle ${n ? g : verifiee ? "ok" : "non"}`, text: n ? nombre(n, 0) : verifiee ? "0" : "–", title: n ? "" : verifiee ? L("Rien trouvé (contrôle partiel : voir ses limites plus bas)", "Nothing found (partial check: see its limits below)") : L("Non vérifiée : couches absentes", "Not checked: layers missing") }), el("span", { text: nomRegle(regle) }),
         el("span", { class: "seuil-regle", text: REGLES[regle].seuil ? `≥ ${longueur(this.seuils[REGLES[regle].seuil!], u, 3)}` : !verifiee ? L("non vérifiée", "not checked") : "" }))));
     }
@@ -252,15 +257,27 @@ export class Fabrication {
     if (d.regle) {
       const defauts = r.resultats.filter((x) => x.regle === d.regle);
       const ul = el("ul", { class: "liste-composants defauts-dfm" });
-      defauts.slice(0, 500).forEach((x, i) => ul.append(el("li", {}, el("button", { type: "button", class: i === d.choisi ? "actif" : "", onclick: () => {
-        d.choisi = i;
-        this.hote.allerA(x.x, x.y, 2.5);
-        this.hote.montrerOnglet("dfm");
-      } }, el("strong", { text: `${i + 1}.` }), el("span", { text: this.texteDefaut(x) })))));
-      if (defauts.length > 500) ul.append(el("li", { class: "discret", text: L(`… et ${defauts.length - 500} autres`, `… and ${defauts.length - 500} more`) }));
-      racine.append(el("section", { class: "bloc" }, el("h3", { text: nomRegle(d.regle) }), ul));
+      defauts.slice(0, 500).forEach((x, i) => ul.append(el("li", {}, el("button", { type: "button", class: i === d.choisi ? "actif" : "", onclick: () => this.allerDefaut(i) }, el("strong", { text: `${i + 1}.` }), el("span", { text: this.texteDefaut(x) })))));
+      if (defauts.length > 500) ul.append(el("li", { class: "discret", text: L(`… et ${defauts.length - 500} autres (Suivant pour les parcourir)`, `… and ${defauts.length - 500} more (Next to browse them)`) }));
+      const choisi = defauts[d.choisi];
+      const navigation = el("div", { class: "navigation-dfm" },
+        el("button", { type: "button", class: "bouton", title: L("Défaut précédent (P)", "Previous issue (P)"), html: `${icone("gauche", 16)}<span>${L("Précédent", "Previous")}</span>`, onclick: () => this.suivant(-1) }),
+        el("span", { class: "position-dfm", text: d.choisi >= 0 ? `${d.choisi + 1} / ${defauts.length}` : `— / ${defauts.length}` }),
+        el("button", { type: "button", class: "bouton principal", title: L("Défaut suivant (N)", "Next issue (N)"), html: `<span>${L("Suivant", "Next")}</span>${icone("droite", 16)}`, onclick: () => this.suivant(1) }));
+      racine.append(el("section", { class: "bloc" }, el("h3", { text: nomRegle(d.regle) }), navigation,
+        choisi ? el("p", { class: "defaut-choisi", text: this.texteDefaut(choisi) }) : null, ul));
+      // Le défaut choisi reste visible dans la liste.
+      requestAnimationFrame(() => racine.querySelector(".defauts-dfm button.actif")?.scrollIntoView({ block: "nearest" }));
     }
     return racine;
+  }
+
+  /** La mesure d'un défaut, seule : « 0,09 mm < 0,127 mm », surface, ou nets en cause. */
+  private mesure(x: DefautDfm): string {
+    const u = this.hote.unite();
+    if (x.regle === "court" || x.regle === "pastilleAbsente") return x.details;
+    if (REGLES[x.regle]?.surface) return `${nombre(x.valeur, 3)} mm²`;
+    return `${longueur(x.valeur, u, 3)} < ${longueur(x.limite, u, 3)}`;
   }
 
   private texteDefaut(x: DefautDfm): string {
@@ -270,6 +287,52 @@ export class Fabrication {
     if (x.regle === "pastilleAbsente") return `${lieu} · ${x.details}`;
     if (REGLES[x.regle]?.surface) return `${lieu} · ${nombre(x.valeur, 3)} mm²`;
     return `${lieu} · ${longueur(x.valeur, u, 3)} < ${longueur(x.limite, u, 3)}${x.details ? ` · ${tm(x.details)}` : ""}`;
+  }
+
+  /** Défauts de la règle choisie (tous, pas seulement ceux listés). */
+  private defautsChoisis(): DefautDfm[] {
+    const d = this.dfm;
+    return d?.regle ? d.resultat.resultats.filter((x) => x.regle === d.regle) : [];
+  }
+
+  /** Cadre la carte de près sur le défaut `i` de la règle choisie, et le met en évidence. */
+  allerDefaut(i: number) {
+    const d = this.dfm;
+    const defauts = this.defautsChoisis();
+    if (!d || !defauts[i]) return;
+    d.choisi = i;
+    const x = defauts[i];
+    // Cadrage : assez près pour voir le défaut, assez large pour garder ses voisins (2,5 à 6 mm autour).
+    const taille = Math.min(6, Math.max(2.5, 2.5 + (REGLES[x.regle]?.surface ? 1 : x.valeur) * 8));
+    this.hote.allerA(x.x, x.y, taille);
+    this.hote.montrerOnglet("dfm");
+    this.hote.redessiner();
+  }
+
+  /**
+   * Défaut suivant (pas = 1) ou précédent (−1) : à la fin d'une règle, on passe à la règle suivante qui a des
+   * défauts. Renvoie false s'il n'y a rien à parcourir.
+   */
+  suivant(pas: 1 | -1): boolean {
+    const d = this.dfm;
+    if (!d) return false;
+    const regles = ORDRE.filter((r) => (d.resultat.comptes[r] ?? 0) > 0);
+    if (!regles.length) return false;
+    if (!d.regle || !regles.includes(d.regle)) {
+      d.regle = pas > 0 ? regles[0] : regles[regles.length - 1];
+      this.allerDefaut(pas > 0 ? 0 : this.defautsChoisis().length - 1);
+      return true;
+    }
+    const n = this.defautsChoisis().length;
+    const i = d.choisi + pas;
+    if (i >= 0 && i < n) {
+      this.allerDefaut(i);
+      return true;
+    }
+    const k = (regles.indexOf(d.regle) + pas + regles.length) % regles.length;
+    d.regle = regles[k];
+    this.allerDefaut(pas > 0 ? 0 : this.defautsChoisis().length - 1);
+    return true;
   }
 
   /** Marques des défauts de la règle choisie (ou de toutes, en petit) sur la surcouche. */
@@ -290,6 +353,36 @@ export class Fabrication {
       ctx.arc(sx, sy, rayon, 0, Math.PI * 2);
       ctx.stroke();
       if (choisi) {
+        // Halo : un disque translucide et un second cercle, pour trouver le défaut d'un coup d'œil.
+        ctx.save();
+        ctx.fillStyle = `${COULEURS[g]}33`;
+        ctx.beginPath();
+        ctx.arc(sx, sy, rayon * 2.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.lineWidth = 1.2 * r;
+        ctx.setLineDash([4 * r, 3 * r]);
+        ctx.beginPath();
+        ctx.arc(sx, sy, rayon * 2.2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        // Étiquette : règle et mesure.
+        const texte = `${nomRegle(x.regle)} · ${this.mesure(x)}`;
+        ctx.save();
+        ctx.font = `${600} ${12 * r}px Inter, system-ui, sans-serif`;
+        const l = ctx.measureText(texte).width + 14 * r;
+        const hx = sx + rayon * 2.4;
+        const hy = sy - rayon * 2.4 - 22 * r;
+        ctx.fillStyle = "rgba(12, 17, 25, 0.9)";
+        ctx.strokeStyle = COULEURS[g];
+        ctx.lineWidth = 1 * r;
+        ctx.beginPath();
+        ctx.roundRect(hx, hy, l, 22 * r, 6 * r);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#e8edf4";
+        ctx.textBaseline = "middle";
+        ctx.fillText(texte, hx + 7 * r, hy + 11 * r);
+        ctx.restore();
         ctx.beginPath();
         ctx.moveTo(sx - rayon * 1.6, sy);
         ctx.lineTo(sx - rayon * 0.6, sy);

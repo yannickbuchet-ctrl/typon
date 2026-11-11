@@ -52,9 +52,18 @@ try {
   bilan.push(`DFM carte d'exemple : ${(await etat(page)).trim()}`);
   const regle = page.locator(".regles-dfm .regle:not([disabled])").first();
   if (await regle.count()) {
+    // Clic sur une règle : premier défaut cadré ; N : défaut suivant, puis règle suivante.
     await regle.click();
-    await page.locator(".defauts-dfm button").first().click();
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(500);
+    verifier((await page.locator(".position-dfm").textContent()).startsWith("1 /"), "premier défaut non choisi");
+    const vu = [];
+    for (let i = 0; i < 4; i++) {
+      vu.push(`${await page.locator(".regles-dfm .regle.actif").innerText()} ${await page.locator(".position-dfm").textContent()}`.replace(/\s+/g, " "));
+      await page.keyboard.press("n");
+      await page.waitForTimeout(300);
+    }
+    verifier(new Set(vu).size === 4, `N ne fait pas avancer : ${vu.join(" | ")}`);
+    bilan.push(`Parcours des défauts (N) : ${vu.join(" → ")}`);
     await page.screenshot({ path: path.join(sortie, "dfm.png") });
   }
   const [rapport] = await Promise.all([page.waitForEvent("download", { timeout: 180000 }), page.getByRole("button", { name: "Rapport PDF" }).click()]);
