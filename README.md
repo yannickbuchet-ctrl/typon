@@ -150,9 +150,16 @@ par pixel pour une carte de 40 mm, 0,07 mm pour une carte de 300 mm).
 
 ## Pour essayer
 
-L'accueil propose une **carte d'exemple** fictive à 4 couches (en Gerber X2/X3 et en ODB++) et la comparaison de
-ses **révisions A et B** : piste SCL déroutée, via ajouté, résistance R4 remplacée par le condensateur C5, trous de
-fixation agrandis, sérigraphie modifiée. Ces fichiers sont générés par `scripts/generer_exemples.py`.
+L'accueil propose une **carte d'exemple** fictive (en Gerber X2/X3 et en ODB++) : un nœud capteur IoT de 60 × 38 mm à
+4 couches, avec 47 composants (microcontrôleur en QFN-32, USB-C, chargeur de batterie, capteur isolé par une découpe,
+connecteur Qwiic, barrettes), plans de masse et d'alimentation, vias, sérigraphie et composants en 3D. La
+comparaison de ses **révisions A et B** montre une piste SCL déroutée, deux résistances changées de valeur, une LED
+et sa résistance retirées, un condensateur ajouté et un via déplacé.
+
+La carte respecte les règles de fabrication courantes, sauf **six défauts volontaires**, cachés mais détectables
+(piste de 0,10 mm, isolement de 0,09 mm, anneau de 0,05 mm, via à 0,25 mm du bord, perçage de 0,25 mm, texte de
+sérigraphie sur une pastille) : ils sont décrits, avec leur position, dans [docs/defauts-exemple.md](docs/defauts-exemple.md).
+Ces fichiers sont générés par `scripts/generer_exemples.py`.
 
 ## Raccourcis
 
@@ -201,7 +208,8 @@ Structure :
 Essais :
 
 ```
-python scripts/generer_exemples.py        # cartes d'exemple du site (public/exemples/)
+python scripts/generer_exemples.py        # cartes d'exemple du site (public/exemples/), avec shapely
+python scripts/verifier_exemple.py        # vérification indépendante des cartes d'exemple (shapely, pillow)
 node scripts/telecharger-exemples.mjs     # fichiers publics de test (Ucamco, ODB++), hors du dépôt
 cd core && cargo test --release -- --nocapture
 node scripts/essai-navigateur.mjs         # après npm run build : parcours complet dans Chromium
@@ -216,7 +224,7 @@ Les essais dans le navigateur prennent leur port dans la variable `PORT_ESSAI` (
 Les essais du moteur comparent le rendu des fichiers de test de la norme Gerber (Ucamco) à leurs images de
 référence, lisent tous les jeux d'exemple (cartes KiCad et LibrePCB en X2/X3, XNC, fichiers de job, ODB++ officiel
 et exports KiCad, IPC-2581 du consortium, de KiCad et d'Altium), vérifient que la carte d'exemple en RS-274D (roue
-Eagle, liste Protel) donne le même dessin que sa version X2, et que le code-barres ODB++ correspond à celui que le
+Eagle, liste Protel) donne les mêmes pistes et pastilles que sa version X2, et que le code-barres ODB++ correspond à celui que le
 générateur calcule de son côté. Le parcours dans le navigateur vérifie l'affichage, l'inspecteur, l'ODB++, la comparaison (dont
 Gerber contre ODB++ de la même carte, qui doit donner des couches identiques) et le rapport PDF.
 

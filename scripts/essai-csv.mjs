@@ -134,7 +134,7 @@ try {
   await page.getByRole("button", { name: /Carte d'exemple/ }).click();
   await attendreEtat(page, /couches lues/);
   const gerber = await parcourirOnglets(page, "Gerber", "typon-demo-revA-");
-  verifier(gerber.composants?.length === 12, `Gerber : composants ${gerber.composants?.length}`);
+  verifier(gerber.composants?.length === 48, `Gerber : composants ${gerber.composants?.length}`);
   verifier(gerber.composants[0].join("|") === "Repère|Valeur|Boîtier|Pièce|Côté|Rotation", `Gerber : en-tête des composants ${gerber.composants[0]}`);
   verifier(gerber.empilage && Object.keys(gerber).some((k) => k.startsWith("job ")) && gerber.fichiers?.length > 13, `Gerber : empilage ${!!gerber.empilage}, fichiers ${gerber.fichiers?.length}`);
   // Détails de couches : attributs X2, ouvertures, outils de perçage
@@ -154,7 +154,7 @@ try {
   await attendreEtat(page, /couches lues/);
   const odb = await parcourirOnglets(page, "ODB++", "typon-demo-revA-odb-");
   for (const t of ["composants", "nomenclature", "nets", "matrice des couches", "informations ODB++"]) verifier(odb[t], `ODB++ : tableau « ${t} » non exporté (${Object.keys(odb).join(", ")})`);
-  verifier(odb.composants.length === 12, `ODB++ : composants ${odb.composants.length}`);
+  verifier(odb.composants.length === 48, `ODB++ : composants ${odb.composants.length}`);
   verifier(odb.nomenclature.some((l) => l[3] === "R1, R2"), "ODB++ : nomenclature sans « R1, R2 »");
   bilan.push(`ODB++ : ${Object.keys(odb).length} tableaux exportés (${Object.keys(odb).join(", ")})`);
 
@@ -169,7 +169,7 @@ try {
   const zones = diff["zones Cuivre dessus"];
   verifier(zones && zones.length > 1 && /^-?\d+(,\d+)?$/.test(zones[1][2]), `Comparaison : zones ${zones?.[1]}`);
   const composants = diff["différences de composants"];
-  verifier(composants?.some((l) => l[0] === "retiré" && l[1] === "R4") && composants.some((l) => l[0] === "ajouté" && l[1] === "C5"), `Comparaison : composants ${composants}`);
+  verifier(composants?.some((l) => l[0] === "retiré" && l[1] === "D2") && composants.some((l) => l[0] === "ajouté" && l[1] === "C13") && composants.some((l) => l[0] === "modifié" && l[1] === "R10"), `Comparaison : composants ${composants}`);
   bilan.push(`Comparaison : ${Object.keys(paires).length + Object.keys(diff).length} tableaux exportés (${[...Object.keys(paires), ...Object.keys(diff)].join(", ")}), ${zones.length - 1} zones sur le cuivre dessus`);
   await contexte.close();
 } catch (e) {
