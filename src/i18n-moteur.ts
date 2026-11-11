@@ -10,6 +10,12 @@ import { langue } from "./i18n";
 
 /** Libellés fixes du moteur (français → anglais). */
 const FIXES: Record<string, string> = {
+  "Archive trop volumineuse une fois décompressée (plus de 400 Mo).": "Archive too large once decompressed (more than 400 MB).",
+  "Valeurs aberrantes (non finies ou démesurées) : objets ignorés.": "Aberrant values (non-finite or oversized): objects ignored.",
+  "Coordonnées sans code D après un flash (D03) : flash répété (codes D modaux, usage ancien).": "Coordinates without a D code after a flash (D03): flash repeated (modal D codes, legacy usage).",
+  "Le moteur a redémarré après une erreur : rouvrez ces fichiers.": "The engine restarted after an error: reopen these files.",
+  "Le moteur s'est arrêté sur une erreur interne en lisant ces fichiers. Les fichiers déjà ouverts sont à rouvrir ; signalez le fichier en cause si l'erreur se reproduit.": "The engine stopped on an internal error while reading these files. Files already open must be reopened; report the faulty file if the error happens again.",
+  "Fond de la couche négative": "Negative layer background",
   // Couches (couches.rs, lib.rs, odb.rs, ipc2581.rs)
   "Cuivre": "Copper",
   "Masque de soudure": "Solder mask",
@@ -224,6 +230,15 @@ const RE_BASES = Object.keys(BASES).sort((a, b) => b.length - a.length).map(echa
 
 /** Motifs des textes paramétrés : [expression, traduction]. */
 const MOTIFS: [RegExp, (...g: string[]) => string][] = [
+  // Alertes du durcissement (fichiers démesurés ou abîmés) et du lot 3
+  [/^Répétition de (\d+) × (\d+) : ramenée à une seule copie \(au plus 100 000 copies\)\.$/, (x, y) => `Step and repeat of ${x} × ${y}: reduced to a single copy (100,000 copies at most).`],
+  [/^Plus de (\d+) éléments : la suite du fichier est ignorée \(fichier démesuré ou piégé \?\)\.$/, (n) => `More than ${n} elements: the rest of the file is ignored (oversized or malicious file?).`],
+  [/^« (.+) » : plus de (\d+) éléments, la suite du fichier est ignorée\.$/, (f, n) => `“${f}”: more than ${n} elements, the rest of the file is ignored.`],
+  [/^« (.+) » est une couche négative : l'image est inversée dans le cadre de la carte\.$/, (f) => `“${f}” is a negative layer: the image is inverted within the board frame.`],
+  [/^(.+) : « (.+) » : archives imbriquées trop profondément\.$/, (a, f) => `${a}: “${f}”: archives nested too deeply.`],
+  [/^« (.+) » : archives imbriquées trop profondément\.$/, (f) => `“${f}”: archives nested too deeply.`],
+  [/^(.+) : « (.+) » : décompression impossible, ou plus de 400 Mo une fois décompressé\.$/, (a, f) => `${a}: “${f}”: cannot decompress, or more than 400 MB once decompressed.`],
+  [/^Format des coordonnées non indiqué : (\S+) supposé\. Vérifiez les dimensions \(une erreur d'échelle ×10 est possible\)\.$/, (f) => `Coordinate format not stated: ${f} assumed. Check the dimensions (a ×10 scale error is possible).`],
   // Couches
   [/^Cuivre interne (\d+)$/, (n) => `Inner copper ${n}`],
   [new RegExp(`^(${RE_BASES}) (dessus|dessous|interne)$`), (b, c) => `${COTES[c]} ${BASES[b]}`],

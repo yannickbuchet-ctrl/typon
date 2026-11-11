@@ -1034,7 +1034,10 @@ export class App {
       return racine;
     }
     if (p.etat === "identique") {
-      racine.append(el("div", { class: "identique", html: icone("info", 18) }, el("span", { text: t("cmp.identique", { tolerance: cmp.tolerance ? t("cmp.identiqueTolerance", { t: longueur(cmp.tolerance, this.unite, 3) }) : "" }) })));
+      // Le verdict dit à quel pas il est établi : un écart plus fin que ce pas n'est pas vu par l'image.
+      const pas = p.resolution ? (langue() === "en" ? ` (image compared at ${longueur(p.resolution, this.unite, 3)} per pixel)` : ` (images comparées au pas de ${longueur(p.resolution, this.unite, 3)})`) : "";
+      racine.append(el("div", { class: "identique", html: icone("info", 18) }, el("span", { text: t("cmp.identique", { tolerance: cmp.tolerance ? t("cmp.identiqueTolerance", { t: longueur(cmp.tolerance, this.unite, 3) }) : "" }) + pas })));
+      if (p.notes?.length) racine.append(el("div", { class: "notes-donnees" }, el("strong", { text: langue() === "en" ? "But the data differ: " : "Mais les données diffèrent : " }), el("span", { text: p.notes.join(" ; ") })));
       return racine;
     }
     const nav = el("div", { class: "nav-zones" },

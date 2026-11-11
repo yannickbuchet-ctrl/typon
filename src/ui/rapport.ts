@@ -22,6 +22,7 @@ interface Options {
 
 /** Texte compatible avec les polices standard du PDF (WinAnsi). */
 function propre(texte: string): string {
+  texte = texte.replace(/Ω/g, "Ohm").replace(/μ/g, "µ");
   return texte.replace(/[  ]/g, " ").replace(/[«»]/g, (c) => c).replace(/[^\x20-\x7e -ÿ€–—…’‘“”•×]/g, "?");
 }
 

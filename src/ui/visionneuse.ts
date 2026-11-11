@@ -47,6 +47,14 @@ export class Visionneuse {
     this.etiquettes = el("div", { class: "etiquettes-panneaux" });
     this.racine = el("div", { class: "visionneuse", tabindex: "0" }, this.canvas, this.surcouche, this.etiquettes);
     this.rendu = new Rendu(this.canvas);
+    // Carte graphique réinitialisée (pilote, manque de mémoire) : le canevas resterait noir sans explication.
+    this.canvas.addEventListener("webglcontextlost", (e) => {
+      e.preventDefault();
+      const en = document.documentElement.lang === "en";
+      this.racine.append(el("div", { class: "perte-contexte" },
+        el("p", { text: en ? "The graphics card was reset (driver, or not enough memory): the view can no longer be drawn." : "La carte graphique a été réinitialisée (pilote, ou mémoire insuffisante) : la vue ne peut plus être dessinée." }),
+        el("button", { type: "button", class: "bouton principal", text: en ? "Reload the page" : "Recharger la page", onclick: () => location.reload() })));
+    });
     new ResizeObserver(() => this.redimensionner()).observe(this.racine);
     this.installerEvenements();
   }

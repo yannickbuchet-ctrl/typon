@@ -232,22 +232,32 @@ fn dist_segments(a: Pt, b: Pt, c: Pt, d: Pt) -> (f64, Pt) {
 
 /// Paires de propriétaires dont des segments sont à moins de `seuil` : distance minimale et lieu. `garder(i, j)`
 /// filtre les paires (i < j).
-fn paires_proches(segments: &[(Pt, Pt, usize)], seuil: f64, garder: &dyn Fn(usize, usize) -> bool) -> HashMap<(usize, usize), (f64, Pt)> {
-    let mut res: HashMap<(usize, usize), (f64, Pt)> = HashMap::new();
+/// Paires de propriétaires dont des segments sont à moins de `seuil` : pour chaque paire, les endroits distincts
+/// (à plus de 1,5 mm les uns des autres, 20 au plus), avec la distance minimale à chacun.
+fn paires_proches(segments: &[(Pt, Pt, usize)], seuil: f64, garder: &dyn Fn(usize, usize) -> bool) -> HashMap<(usize, usize), Vec<(f64, Pt)>> {
+    let mut res: HashMap<(usize, usize), Vec<(f64, Pt)>> = HashMap::new();
     if segments.is_empty() || seuil <= 0.0 {
         return res;
     }
     let cote = (seuil * 2.0).max(0.25);
+    // Les segments longs (bords de plans, pistes en diagonale) sont découpés en morceaux de quelques cases : sinon leur
+    // boîte couvrirait des milliers de cases.
+    let pas = cote * 4.0;
+    let mut morceaux: Vec<(Pt, Pt, usize)> = Vec::with_capacity(segments.len());
+    for &(a, b, o) in segments {
+        let n = (a.dist(b) / pas).ceil().clamp(1.0, 100_000.0) as usize;
+        for k in 0..n {
+            let (t0, t1) = (k as f64 / n as f64, (k + 1) as f64 / n as f64);
+            morceaux.push((pt(a.x + (b.x - a.x) * t0, a.y + (b.y - a.y) * t0), pt(a.x + (b.x - a.x) * t1, a.y + (b.y - a.y) * t1), o));
+        }
+    }
+    let segments = &morceaux;
     let cle = |x: f64| (x / cote).floor() as i64;
     let mut grille: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
     for (i, (a, b, _)) in segments.iter().enumerate() {
         let (x0, x1) = (a.x.min(b.x) - seuil, a.x.max(b.x) + seuil);
         let (y0, y1) = (a.y.min(b.y) - seuil, a.y.max(b.y) + seuil);
         let (cx0, cx1, cy0, cy1) = (cle(x0), cle(x1), cle(y0), cle(y1));
-        // Segment très long : on le découpe virtuellement en cases (limité, pour éviter les explosions).
-        if (cx1 - cx0 + 1) * (cy1 - cy0 + 1) > 4096 {
-            continue;
-        }
         for cx in cx0..=cx1 {
             for cy in cy0..=cy1 {
                 grille.entry((cx, cy)).or_default().push(i);
@@ -272,9 +282,15 @@ fn paires_proches(segments: &[(Pt, Pt, usize)], seuil: f64, garder: &dyn Fn(usiz
                 }
                 let (dd, lieu) = dist_segments(a, b, c, d);
                 if dd < seuil {
-                    let e = res.entry(cle_paire).or_insert((f64::INFINITY, lieu));
-                    if dd < e.0 {
-                        *e = (dd, lieu);
+                    let lieux = res.entry(cle_paire).or_default();
+                    match lieux.iter().position(|(_, q)| q.dist(lieu) < 1.5) {
+                        Some(k) => {
+                            if dd < lieux[k].0 {
+                                lieux[k] = (dd, lieu);
+                            }
+                        }
+                        None if lieux.len() < 20 => lieux.push((dd, lieu)),
+                        None => {}
                     }
                 }
             }
@@ -458,7 +474,7 @@ pub fn etendue_percage(c: &Couche, couches: &[Couche]) -> Option<(u32, u32)> {
 /// Un trou de ce diamètre est-il métallisé ? D'après l'outil de même diamètre (ODB++, IPC-2581), sinon `defaut`
 /// (la couche entière).
 pub fn metallise_trou(c: &Couche, diametre: f64, defaut: bool) -> bool {
-    c.meta.get("outils").and_then(|o| o.as_array()).and_then(|outils| {
+    c.meta.get("metallisationOutils").and_then(|o| o.as_array()).and_then(|outils| {
         outils.iter().filter_map(|t| Some((t.get(0)?.as_f64()?, t.get(1)?.as_bool()?))).find(|(d, _)| (d - diametre).abs() < 0.003).map(|(_, m)| m)
     }).unwrap_or(defaut)
 }
@@ -527,16 +543,18 @@ pub fn verifier(couches: &[Couche], regles: &Regles) -> Value {
                 res.push(Resultat { regle: "percage", couche: String::new(), x: t.c.x, y: t.c.y, valeur: 2.0 * t.r, limite: regles.percage, details: if t.metallise { "métallisé".into() } else { "non métallisé".into() } });
             }
         }
-        // Écart entre trous (bord à bord)
+        // Écart entre trous (bord à bord) : voisinage assez large pour les plus gros trous.
         let cote = 2.0;
+        let rmax = trous.iter().map(|t| t.r).fold(0.0, f64::max);
+        let portee = ((regles.trou_trou + 2.0 * rmax) / cote).ceil().clamp(1.0, 50.0) as i64;
         let mut grille: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
         for (i, t) in trous.iter().enumerate() {
             grille.entry(((t.c.x / cote).floor() as i64, (t.c.y / cote).floor() as i64)).or_default().push(i);
         }
         for (i, t) in trous.iter().enumerate() {
             let (cx, cy) = ((t.c.x / cote).floor() as i64, (t.c.y / cote).floor() as i64);
-            for dx in -1..=1 {
-                for dy in -1..=1 {
+            for dx in -portee..=portee {
+                for dy in -portee..=portee {
                     for &j in grille.get(&(cx + dx, cy + dy)).map(|v| v.as_slice()).unwrap_or(&[]) {
                         if j <= i {
                             continue;
@@ -613,8 +631,10 @@ pub fn verifier(couches: &[Couche], regles: &Regles) -> Value {
         let mut segs = Vec::new();
         segments_ilots(&ilots, 0, &mut segs);
         let memes = |i: usize, j: usize| -> bool { !nets[i].is_empty() && nets[i] == nets[j] };
-        for ((i, j), (d, lieu)) in paires_proches(&segs, regles.isolement, &|i, j| !memes(i, j)) {
+        for ((i, j), lieux) in paires_proches(&segs, regles.isolement, &|i, j| !memes(i, j)) {
+            for (d, lieu) in lieux {
             res.push(Resultat { regle: "isolement", couche: c.nom.clone(), x: lieu.x, y: lieu.y, valeur: d, limite: regles.isolement, details: [nets[i].first(), nets[j].first()].iter().flatten().map(|s| s.as_str()).collect::<Vec<_>>().join(" / ") });
+            }
         }
         // Cuivre au bord de la carte
         if !bord.is_empty() {
@@ -627,7 +647,7 @@ pub fn verifier(couches: &[Couche], regles: &Regles) -> Value {
                     s2.push((a[k], a[(k + 1) % a.len()], n));
                 }
             }
-            for ((i, _), (d, lieu)) in paires_proches(&s2, regles.cuivre_bord, &|_, j| j == n) {
+            for ((i, _), (d, lieu)) in paires_proches(&s2, regles.cuivre_bord, &|_, j| j == n).into_iter().flat_map(|(k, v)| v.into_iter().map(move |x| (k, x))) {
                 // Un îlot qui touche le bord est aussi signalé (distance nulle).
                 let _ = i;
                 res.push(Resultat { regle: "cuivreBord", couche: c.nom.clone(), x: lieu.x, y: lieu.y, valeur: d, limite: regles.cuivre_bord, details: String::new() });
@@ -711,7 +731,7 @@ pub fn verifier(couches: &[Couche], regles: &Regles) -> Value {
             let ilots = en_ilots(ouvertures.clone());
             let mut segs = Vec::new();
             segments_ilots(&ilots, 0, &mut segs);
-            for (_, (d, lieu)) in paires_proches(&segs, regles.pont_vernis, &|_, _| true) {
+            for (d, lieu) in paires_proches(&segs, regles.pont_vernis, &|_, _| true).into_values().flatten() {
                 res.push(Resultat { regle: "pontVernis", couche: m.nom.clone(), x: lieu.x, y: lieu.y, valeur: d, limite: regles.pont_vernis, details: String::new() });
             }
         }

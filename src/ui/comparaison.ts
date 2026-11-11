@@ -7,6 +7,7 @@ import { traduireMoteur } from "../i18n-moteur";
 import { moteur, type Composant } from "../moteur/client";
 import type { CoucheAffichee, Rendu, Vue } from "../rendu/rendu";
 import type { DocumentTypon, EtatCouche } from "./document";
+import { nombre } from "./dom";
 
 export interface ZoneMm {
   x0: number;
@@ -28,6 +29,8 @@ export interface Paire {
   etat: EtatPaire;
   zones: ZoneMm[];
   resolution?: number;
+  /** Écarts dans les données, que l'image ne montre pas (nombre d'objets, outils de perçage). */
+  notes?: string[];
 }
 
 /** Clé d'appariement d'une couche : genre, côté, numéro (cuivre interne), sinon libellé. */
@@ -131,6 +134,26 @@ export async function analyser(rendu: Rendu, docA: DocumentTypon, docB: Document
   }));
   p.resolution = px;
   p.etat = p.zones.length ? "differences" : "identique";
+  p.notes = ecartsDonnees(p);
+}
+
+/**
+ * Écarts dans les données de deux couches de même format, que la comparaison d'images peut manquer (un écart plus
+ * petit que le pas de la comparaison) : nombre d'objets, outils de perçage (diamètre et nombre de trous).
+ */
+function ecartsDonnees(p: Paire): string[] {
+  const a = p.a?.desc;
+  const b = p.b?.desc;
+  if (!a || !b) return [];
+  const notes: string[] = [];
+  const fr = langue() !== "en";
+  if (a.format === b.format && a.objets !== b.objets) notes.push(fr ? `${a.objets} objets en A, ${b.objets} en B` : `${a.objets} objects in A, ${b.objets} in B`);
+  const outils = (d: typeof a) => (d.meta.outils ?? []).map((o) => `${o.diametre.toFixed(3)}:${o.trous}`).sort().join(" ");
+  if (a.meta.outils?.length && b.meta.outils?.length && outils(a) !== outils(b)) {
+    const liste = (d: typeof a) => (d.meta.outils ?? []).map((o) => `Ø${nombre(o.diametre, 3)} × ${o.trous}`).join(", ");
+    notes.push(fr ? `outils de perçage différents : A ${liste(a)} ; B ${liste(b)}` : `different drill tools: A ${liste(a)}; B ${liste(b)}`);
+  }
+  return notes;
 }
 
 function eroder(m: Uint8Array, l: number, h: number, passes: number) {

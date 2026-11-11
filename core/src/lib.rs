@@ -545,7 +545,9 @@ pub fn analyser(lot: &mut Lot) -> Value {
                 "objets": nb,
                 "nets": g.nets.len(),
                 "composants": g.composants.len(),
-                "negatif": g.negatif,
+                // IP NEG inverse l'image. L'attribut X2 FilePolarity,Negative, lui, est courant sur le vernis (le fichier
+                // décrit les ouvertures, ce que Typon suppose déjà) : il n'inverse que le cuivre.
+                "negatif": g.negatif || (role.genre == Genre::Cuivre && g.attributs.iter().any(|(n, v)| n == "FilePolarity" && v.first().map(|x| x == "Negative").unwrap_or(false))),
                 "alertes": g.alertes,
             });
             couches.push(Couche { nom: role.libelle.clone(), fichier: nom, format: "Gerber", role, dessin: g.dessin, index: None, meta: meta_c });
@@ -556,6 +558,30 @@ pub fn analyser(lot: &mut Lot) -> Value {
 
     // Couches cuivre sans numéro : numérotées d'après leur côté.
     couches.sort_by(|a, b| b.role.rang.cmp(&a.role.rang).then(a.nom.cmp(&b.nom)));
+    // Couches négatives (IP NEG, FilePolarity Negative, POLARITY=NEGATIVE) : le fichier décrit les zones sans matière.
+    // L'image est inversée dans le cadre de la carte (contour, sinon la couche agrandie de 1 mm), pour que
+    // l'affichage, la comparaison, la 3D et le DFM voient le cuivre réel.
+    let cadre = couches.iter().find(|c| c.role.genre == Genre::Contour && !c.dessin.elements.is_empty()).map(|c| c.dessin.boite_axes());
+    for c in couches.iter_mut() {
+        if !c.meta.get("negatif").and_then(|v| v.as_bool()).unwrap_or(false) || c.dessin.elements.is_empty() {
+            continue;
+        }
+        let mut b = cadre.unwrap_or_else(|| {
+            let mut b = c.dessin.boite();
+            b.gonfle(1.0);
+            b
+        });
+        if b.est_vide() {
+            continue;
+        }
+        b.gonfle(0.0);
+        let fond = c.dessin.nouvel_objet(vec![("Objet".into(), "Fond de la couche négative".into())]);
+        for e in c.dessin.elements.iter_mut() {
+            e.sombre = !e.sombre;
+        }
+        c.dessin.elements.insert(0, geom::Element { prim: geom::Prim::Poly { anneaux: vec![vec![geom::pt(b.x0, b.y0), geom::pt(b.x1, b.y0), geom::pt(b.x1, b.y1), geom::pt(b.x0, b.y1)]] }, sombre: true, objet: fond });
+        alertes.push(format!("« {} » est une couche négative : l'image est inversée dans le cadre de la carte.", c.fichier));
+    }
     // Couches tronquées au plafond d'éléments (fichier démesuré ou piégé).
     for c in couches.iter().filter(|c| c.dessin.tronque) {
         alertes.push(format!("« {} » : plus de {} éléments, la suite du fichier est ignorée.", c.fichier, geom::LIMITE_ELEMENTS));
@@ -696,10 +722,10 @@ fn ajouter_odb(o: odb::Odb, couches: &mut Vec<Couche>, meta: &mut serde_json::Ma
             "nomOdb": c.nom,
             "debut": c.debut,
             "fin": c.fin,
-            "negative": c.polarite_negative,
+            "negatif": c.polarite_negative,
             "elements": c.elements,
             // Métallisation par outil (diamètre de perçage en mm) : un fichier peut mêler les deux.
-            "outils": c.outils.iter().map(|t| json!([t.percage, t.genre != "non métallisé"])).collect::<Vec<_>>(),
+            "metallisationOutils": c.outils.iter().map(|t| json!([t.percage, t.genre != "non métallisé"])).collect::<Vec<_>>(),
         });
         let nom = c.role.libelle.clone();
         let fichier = if o.format == "ODB++" { format!("steps/{}/layers/{}", o.etape, c.nom) } else { format!("{} · {}", o.format, c.nom) };

@@ -25,6 +25,7 @@ function propre(texte: string): string {
   return String(texte)
     .replace(/[  ]/g, " ")
     .replace(/Ω/g, "Ohm")
+    .replace(/μ/g, "µ")
     .replace(/[→]/g, "->")
     .replace(/[≤]/g, "<=")
     .replace(/[≥]/g, ">=")

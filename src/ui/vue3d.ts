@@ -270,6 +270,14 @@ export class Vue3D {
     this.legende = el("div", { class: "legende-3d" });
     this.racine = el("div", { class: "visionneuse vue-3d", tabindex: "0" }, this.canvas, this.bulle, this.legende);
     this.rendu = new Rendu(this.canvas);
+    // Carte graphique réinitialisée (pilote, manque de mémoire) : le canevas resterait noir sans explication.
+    this.canvas.addEventListener("webglcontextlost", (e) => {
+      e.preventDefault();
+      const en = document.documentElement.lang === "en";
+      this.racine.append(el("div", { class: "perte-contexte" },
+        el("p", { text: en ? "The graphics card was reset (driver, or not enough memory): the view can no longer be drawn." : "La carte graphique a été réinitialisée (pilote, ou mémoire insuffisante) : la vue ne peut plus être dessinée." }),
+        el("button", { type: "button", class: "bouton principal", text: en ? "Reload the page" : "Recharger la page", onclick: () => location.reload() })));
+    });
     const gl = (this.gl = this.rendu.gl);
     this.pCarte = compiler(gl, VS_CARTE, FS_CARTE, ["aPos", "aNormale"]);
     this.pTrous = compiler(gl, VS_TROUS, FS_TROUS, ["aUnite", "iTrou"]);

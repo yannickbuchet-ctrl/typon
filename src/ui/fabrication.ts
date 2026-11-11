@@ -38,14 +38,14 @@ const PROFILS: { id: string; nom: string; seuils: Record<CleRegle, number> }[] =
   { id: "pcbway", nom: "PCBWay (standard)", seuils: { piste: 0.1, isolement: 0.1, anneau: 0.15, percage: 0.2, trouTrou: 0.2, cuivreBord: 0.25, cuivreNpth: 0.2, pontVernis: 0.1, serigraphie: 0.15 } },
   { id: "eurocircuits", nom: "Eurocircuits (classe 6)", seuils: { piste: 0.15, isolement: 0.15, anneau: 0.15, percage: 0.25, trouTrou: 0.25, cuivreBord: 0.25, cuivreNpth: 0.25, pontVernis: 0.1, serigraphie: 0.15 } },
   { id: "oshpark", nom: "OSH Park (2 couches)", seuils: { piste: 0.152, isolement: 0.152, anneau: 0.178, percage: 0.254, trouTrou: 0.25, cuivreBord: 0.381, cuivreNpth: 0.2, pontVernis: 0.1, serigraphie: 0.15 } },
-  { id: "prudent", nom: L("Prudent (toute usine)", "Conservative (any fab)"), seuils: { piste: 0.2, isolement: 0.2, anneau: 0.2, percage: 0.3, trouTrou: 0.3, cuivreBord: 0.5, cuivreNpth: 0.3, pontVernis: 0.15, serigraphie: 0.15 } },
+  { id: "prudent", nom: "Prudent (toute usine)", seuils: { piste: 0.2, isolement: 0.2, anneau: 0.2, percage: 0.3, trouTrou: 0.3, cuivreBord: 0.5, cuivreNpth: 0.3, pontVernis: 0.15, serigraphie: 0.15 } },
 ];
 
 type Gravite = "erreur" | "avertissement" | "info";
 const REGLES: Record<string, { fr: string; en: string; seuil?: CleRegle; gravite: Gravite; surface?: boolean }> = {
   court: { fr: "Court-circuit possible", en: "Possible short", gravite: "erreur" },
   isolement: { fr: "Isolement cuivre", en: "Copper clearance", seuil: "isolement", gravite: "erreur" },
-  piste: { fr: "Largeur de piste", en: "Track width", seuil: "piste", gravite: "erreur" },
+  piste: { fr: "Largeur des pistes tracées", en: "Width of drawn tracks", seuil: "piste", gravite: "erreur" },
   anneau: { fr: "Anneau annulaire", en: "Annular ring", seuil: "anneau", gravite: "erreur" },
   pastilleAbsente: { fr: "Pastille absente", en: "Missing pad", gravite: "erreur" },
   percage: { fr: "Perçage minimum", en: "Minimum drill", seuil: "percage", gravite: "erreur" },
@@ -58,6 +58,8 @@ const REGLES: Record<string, { fr: string; en: string; seuil?: CleRegle; gravite
   serigraphieHors: { fr: "Sérigraphie hors de la carte", en: "Silkscreen off board", gravite: "info", surface: true },
 };
 const ORDRE = Object.keys(REGLES);
+/** Nom d'un profil dans la langue de l'interface (lu à l'affichage, pas au chargement). */
+const nomProfil = (p?: { id: string; nom: string }) => (!p ? undefined : p.id === "prudent" ? L("Prudent (toute usine)", "Conservative (any fab)") : p.nom);
 const nomRegle = (r: string) => (REGLES[r] ? L(REGLES[r].fr, REGLES[r].en) : r);
 const COULEURS: Record<Gravite, string> = { erreur: "#ff5a5a", avertissement: "#ffb347", info: "#ffd166" };
 
@@ -177,7 +179,7 @@ export class Fabrication {
     const r = await this.hote.attendre(L("Vérification DFM en cours…", "Running DFM checks…"), () => moteur.dfm(doc.lot, this.seuils));
     if (!r) return;
     this.dfm = { resultat: r, regle: null, choisi: -1 };
-    const total = r.resultats.length;
+    const total = Object.values(r.comptes).reduce((s, n) => s + n, 0);
     this.hote.message(total ? L(`DFM : ${total} point(s) à examiner (${nombre(r.duree / 1000, 1)} s).`, `DFM: ${total} issue(s) to review (${nombre(r.duree / 1000, 1)} s).`) : L("DFM : aucun défaut trouvé.", "DFM: no issue found."), total ? "info" : "succes");
     this.hote.montrerOnglet("dfm");
     this.hote.redessiner();
@@ -195,7 +197,7 @@ export class Fabrication {
         this.memoriser();
         this.hote.montrerOnglet("dfm");
       }
-    } }, ...PROFILS.map((p) => el("option", { value: p.id, text: p.nom, selected: p.id === this.profil })), el("option", { value: "perso", text: L("Personnalisé", "Custom"), selected: this.profil === "perso" }));
+    } }, ...PROFILS.map((p) => el("option", { value: p.id, text: nomProfil(p), selected: p.id === this.profil })), el("option", { value: "perso", text: L("Personnalisé", "Custom"), selected: this.profil === "perso" }));
     const champs = el("div", { class: "seuils" }, ...SEUILS.map((k) => el("label", { class: "seuil" }, el("span", { text: nomRegle(k === "serigraphie" ? "serigraphie" : k) }),
       el("input", { type: "number", min: "0", step: "0.01", value: String(this.seuils[k]), onchange: (e: Event) => {
         const v = Number((e.target as HTMLInputElement).value);
@@ -229,14 +231,23 @@ export class Fabrication {
         d.choisi = -1;
         this.hote.montrerOnglet("dfm");
         this.hote.redessiner();
-      } }, el("span", { class: `etat-regle ${n ? g : verifiee ? "ok" : "non"}`, text: n ? nombre(n, 0) : verifiee ? "✓" : "–" }), el("span", { text: nomRegle(regle) }),
+      } }, el("span", { class: `etat-regle ${n ? g : verifiee ? "ok" : "non"}`, text: n ? nombre(n, 0) : verifiee ? "0" : "–", title: n ? "" : verifiee ? L("Rien trouvé (contrôle partiel : voir ses limites plus bas)", "Nothing found (partial check: see its limits below)") : L("Non vérifiée : couches absentes", "Not checked: layers missing") }), el("span", { text: nomRegle(regle) }),
         el("span", { class: "seuil-regle", text: REGLES[regle].seuil ? `≥ ${longueur(this.seuils[REGLES[regle].seuil!], u, 3)}` : !verifiee ? L("non vérifiée", "not checked") : "" }))));
     }
-    const total = r.resultats.length;
+    const total = Object.values(r.comptes).reduce((s, n) => s + n, 0);
     racine.append(el("section", { class: "bloc" }, el("h3", { text: L("Résultats", "Results") }),
       el("p", { class: total ? "" : "succes-dfm", text: total ? L(`${total} point(s) à examiner, en ${nombre(r.duree / 1000, 1)} s. Cliquez sur une règle pour voir ses défauts sur la carte.`, `${total} issue(s) to review, in ${nombre(r.duree / 1000, 1)} s. Click a rule to see its issues on the board.`) : L("Aucun défaut trouvé avec ces seuils.", "No issue found with these thresholds.") }),
       liste,
-      r.contour ? null : el("p", { class: "discret", text: L("Pas de contour de carte : le cuivre au bord et la sérigraphie hors carte ne sont pas vérifiés.", "No board outline: copper-to-edge and off-board silkscreen are not checked.") })));
+      r.contour ? null : el("p", { class: "discret", text: L("Pas de contour de carte : le cuivre au bord et la sérigraphie hors carte ne sont pas vérifiés.", "No board outline: copper-to-edge and off-board silkscreen are not checked.") }),
+      el("details", { class: "limites-dfm" }, el("summary", { text: L("Limites du contrôle", "Limits of the check") }),
+        el("ul", {}, ...[
+          L("C'est un pré-contrôle : il ne remplace pas la vérification du fabricant ni le DRC du logiciel de conception.", "This is a pre-check: it does not replace the manufacturer's review nor the design software's DRC."),
+          L("La largeur ne porte que sur les pistes tracées (traits ronds) : pas sur les rétrécissements des zones de cuivre ni les surfaces.", "Width only covers drawn tracks (round strokes): not necks in copper areas nor surfaces."),
+          L("L'isolement est mesuré entre îlots de cuivre de nets différents (ou sans net) : pas à l'intérieur d'un même îlot.", "Clearance is measured between copper islands of different nets (or without nets): not within one island."),
+          L("Un « court-circuit possible » peut être une liaison volontaire entre deux nets (net tie).", "A “possible short” may be an intentional net tie."),
+          L("Les rainures et fraisages ne sont pas contrôlés comme des trous (anneau, écart).", "Slots and routs are not checked as holes (ring, spacing)."),
+          L("Au plus 2 000 défauts sont listés par règle ; les totaux comptent tout.", "At most 2,000 issues are listed per rule; totals count them all."),
+        ].map((x) => el("li", { text: x }))))));
     // Défauts de la règle choisie
     if (d.regle) {
       const defauts = r.resultats.filter((x) => x.regle === d.regle);
@@ -307,7 +318,7 @@ export class Fabrication {
       pdf.setCreator("Typon");
       const police = await pdf.embedFont(StandardFonts.Helvetica);
       const gras = await pdf.embedFont(StandardFonts.HelveticaBold);
-      const propre = (s: string) => String(s).replace(/[  ]/g, " ").replace(/≥/g, ">=").replace(/≤/g, "<=").replace(/✓/g, "OK").replace(/[^\x20-\x7e -ÿ€–—…’‘“”•×]/g, "?");
+      const propre = (s: string) => String(s).replace(/Ω/g, "Ohm").replace(/μ/g, "µ").replace(/[  ]/g, " ").replace(/≥/g, ">=").replace(/≤/g, "<=").replace(/✓/g, "OK").replace(/[^\x20-\x7e -ÿ€–—…’‘“”•×]/g, "?");
       const P = { l: 595.28, h: 841.89 };
       const M = 40;
       const u = this.hote.unite();
@@ -322,7 +333,7 @@ export class Fabrication {
       };
       entete(L("Rapport DFM", "DFM report"));
       let y = P.h - M - 30;
-      ecrire(L(`Établi par Typon le ${date} — profil : ${PROFILS.find((p) => p.id === this.profil)?.nom ?? L("personnalisé", "custom")}`, `Generated by Typon on ${date} — profile: ${PROFILS.find((p) => p.id === this.profil)?.nom ?? "custom"}`), M, y, 8, police, rgb(0.4, 0.43, 0.48));
+      ecrire(L(`Établi par Typon le ${date} — profil : ${nomProfil(PROFILS.find((p) => p.id === this.profil)) ?? L("personnalisé", "custom")}`, `Generated by Typon on ${date} — profile: ${nomProfil(PROFILS.find((p) => p.id === this.profil)) ?? "custom"}`), M, y, 8, police, rgb(0.4, 0.43, 0.48));
       y -= 26;
       ecrire(L("Bilan", "Summary"), M, y, 12, gras);
       y -= 18;

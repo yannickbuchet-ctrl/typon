@@ -32,7 +32,10 @@ export function nombreCsv(v: number, decimales = 6): string {
 
 function cellule(v: CelluleCsv): string {
   if (v === null || v === undefined) return "";
-  const s = typeof v === "number" ? nombreCsv(v) : v;
+  let s = typeof v === "number" ? nombreCsv(v) : v;
+  // Texte qui commence par = + - @ (nets « +3V3 », « -12V », ou contenu piégé « =HYPERLINK(…) ») : Excel le
+  // prendrait pour une formule. Il est écrit en formule constante ="…", qui affiche le texte tel quel.
+  if (typeof v === "string" && /^[=+\-@\t\r]/.test(s)) s = `="${s.replace(/"/g, '""')}"`;
   return /[;,"\r\n]/.test(s) || /^\s|\s$/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

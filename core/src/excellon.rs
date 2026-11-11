@@ -94,6 +94,11 @@ pub fn lire(texte: &str) -> Excellon {
     if !unite_vue {
         res.alertes.push("Unité non indiquée : pouces supposés (valeur par défaut d'Excellon).".into());
     }
+    // Coordonnées à point décimal : le format n'importe pas.
+    let avec_point = texte.lines().any(|l| { let l = l.trim_start(); (l.starts_with('X') || l.starts_with('Y')) && l.contains('.') });
+    if entiers.is_none() && !avec_point && texte.lines().any(|l| l.trim_start().starts_with('X') || l.trim_start().starts_with('Y')) {
+        res.alertes.push(format!("Format des coordonnées non indiqué : {ent}.{dec} supposé. Vérifiez les dimensions (une erreur d'échelle ×10 est possible)."));
+    }
 
     let coord = |t: &str| -> f64 {
         let v = if t.contains('.') {

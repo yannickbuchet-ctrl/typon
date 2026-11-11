@@ -222,6 +222,8 @@ struct Lecteur {
     cadres: Vec<Cadre>,
     /// Éléments émis (plafonnés, voir geom::LIMITE_ELEMENTS).
     emis: usize,
+    /// Dernier code d'opération (D01, D02 ou D03), repris par des coordonnées sans code D.
+    derniere_operation: Option<i32>,
     /// Informations distinctes (partagées par les objets qui ont les mêmes attributs).
     objets_info: Vec<Info>,
     infos_index: HashMap<Info, u32>,
@@ -306,6 +308,7 @@ fn nouveau_lecteur() -> Lecteur {
         formes: HashMap::new(),
         cadres: vec![Cadre { elements: Vec::new(), infos: Vec::new(), genre: Genre::Racine }],
         emis: 0,
+        derniere_operation: None,
         objets_info: Vec::new(),
         infos_index: HashMap::new(),
         objets: Vec::new(),
@@ -691,8 +694,15 @@ impl Lecteur {
             Some(v) => v,
             None => self.y,
         };
-        // Coordonnées sans code D : D01 implicite (usage ancien).
-        let operation = d.or(if x.is_some() || y.is_some() { Some(1) } else { None });
+        // Coordonnées sans code D : l'opération précédente se répète (codes D modaux, usage ancien toléré par la
+        // norme) ; D01 si aucune ne précède. Après un flash, c'est un nouveau flash, et non un trait.
+        let operation = d.or(if x.is_some() || y.is_some() { Some(self.derniere_operation.unwrap_or(1)) } else { None });
+        if d.is_none() && operation == Some(3) {
+            self.alerte("Coordonnées sans code D après un flash (D03) : flash répété (codes D modaux, usage ancien).");
+        }
+        if let Some(o @ 1..=3) = operation {
+            self.derniere_operation = Some(o);
+        }
         match operation {
             Some(1) => {
                 self.dessin_commence = true;

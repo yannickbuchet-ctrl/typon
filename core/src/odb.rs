@@ -864,7 +864,11 @@ fn largeur_trait(nom: &str, unite_mm: bool) -> (f64, bool) {
     }
     // Autre symbole utilisé en trait : on prend sa plus petite dimension.
     let nombres: Vec<f64> = nom.split(|c: char| !(c.is_ascii_digit() || c == '.')).filter_map(|v| v.parse().ok()).collect();
-    (nombres.iter().cloned().fold(f64::INFINITY, f64::min).min(1000.0).max(0.0) * k, false)
+    // Sans dimension lisible (symbole utilisateur…) : trait fin plutôt qu'un trait démesuré.
+    if nombres.is_empty() {
+        return (0.0, false);
+    }
+    (nombres.iter().cloned().fold(f64::INFINITY, f64::min).clamp(0.0, 1000.0) * k, false)
 }
 
 struct Symboles<'a, 'b> {
