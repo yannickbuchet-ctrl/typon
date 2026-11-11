@@ -439,7 +439,8 @@ fn panneau() {
         let p = serde_json::json!({"nx": 3, "ny": 2, "separation": separation, "bord": 5, "bords": "haut-bas"});
         let (j, zip) = typon_core::fabrication::panneau(&lot.couches, &p).unwrap();
         println!("Panneau {separation} : {}", j);
-        let mut lot2 = Lot { fichiers: vec![Fichier { chemin: "panneau.zip".into(), octets: zip }], ..Default::default() };
+        let mut lot2 = Lot { fichiers: vec![Fichier { chemin: "panneau.zip".into(), octets: zip.clone() }], ..Default::default() };
+        std::fs::write(racine().join(format!("essais/panneau-{separation}.zip")), &zip).ok();
         let r2 = analyser(&mut lot2);
         let n2 = r2["couches"].as_array().unwrap().len();
         assert!(n2 + 2 >= n_couches, "{separation} : {n2} couches relues pour {n_couches}");
@@ -452,5 +453,30 @@ fn panneau() {
         // Le cuivre du dessus : six fois les objets de la carte (et les mires).
         let objets = |r: &serde_json::Value| r["couches"].as_array().unwrap().iter().find(|c| c["role"]["genre"] == "cuivre" && c["role"]["cote"] == "dessus").map(|c| c["objets"].as_u64().unwrap_or(0)).unwrap_or(0);
         println!("  cuivre dessus : {} objets pour {} ; trous {} pour {}", objets(&r2), objets(&r), trous(&r2), trous(&r));
+        // Contour du panneau : bord extérieur et découpes (canaux de fraisage, découpe en L de chaque carte).
+        let contour = lot2.couches.iter().find(|c| c.role.genre == typon_core::couches::Genre::Contour).expect("contour du panneau");
+        let anneaux = typon_core::geom::anneaux_contour(&contour.dessin);
+        println!("  contour : {} anneaux fermés", anneaux.len());
+        if separation == "fraisage" {
+            // Le panneau, et pour chaque carte au moins un canal de fraisage et sa découpe en L.
+            assert!(anneaux.len() > 6, "fraisage : {} anneaux seulement", anneaux.len());
+        } else {
+            // Le panneau et les six découpes en L.
+            assert!(anneaux.len() >= 7, "rainures en V : {} anneaux", anneaux.len());
+            assert!(lot2.couches.iter().any(|c| c.fichier.contains("rainurage")), "fichier des rainures en V absent");
+        }
+        // Mires et trous d'outillage : au moins 3 mm d'écart.
+        let gros: Vec<_> = lot2.couches.iter().filter(|c| c.role.genre == typon_core::couches::Genre::Percage).flat_map(|c| c.dessin.elements.iter()).filter_map(|e| match e.prim { typon_core::geom::Prim::Cap { a, r, .. } if (r - 1.5).abs() < 0.01 => Some(a), _ => None }).collect();
+        let mires: Vec<_> = lot2.couches.iter().filter(|c| c.role.genre == typon_core::couches::Genre::Cuivre).flat_map(|c| c.dessin.info_objet(0).map(|_| c)).flat_map(|c| c.dessin.elements.iter().filter(|e| c.dessin.info_objet(e.objet).map(|i| i.iter().any(|(_, v)| v.contains("Fiducial"))).unwrap_or(false))).filter_map(|e| match e.prim { typon_core::geom::Prim::Cap { a, .. } => Some(a), _ => None }).collect();
+        assert_eq!(gros.len(), 4, "{separation} : trous d'outillage");
+        for m in &mires {
+            for t in &gros {
+                assert!(m.dist(*t) > 3.0, "{separation} : mire à {:.2} mm d'un trou d'outillage", m.dist(*t));
+            }
+        }
+        // Le DFM du panneau ne doit pas trouver de court-circuit (régions réécrites sans croisement).
+        let d = typon_core::dfm::verifier(&lot2.couches, &typon_core::dfm::Regles::depuis(&serde_json::json!({})));
+        assert!(d["comptes"].get("court").is_none(), "{separation} : courts-circuits dans le panneau {}", d["comptes"]);
+        println!("  DFM du panneau : {}", d["comptes"]);
     }
 }

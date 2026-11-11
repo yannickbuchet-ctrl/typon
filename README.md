@@ -94,6 +94,11 @@ trous d'outillage et une séparation par **rainures en V** ou par **fraisage ave
 écrit en Gerber X2 et Excellon dans une archive ZIP (quel que soit le format d'origine : un ODB++ ou un IPC-2581
 devient ainsi des Gerber), téléchargeable, ou rouvert aussitôt dans Typon pour l'aperçu (vue 3D comprise).
 
+Le contour du panneau est le bord de la matière réelle : cadre, cartes avec leurs découpes, et, en fraisage, les canaux
+autour des cartes coupés par des languettes portant une rangée de perforations. Les perçages gardent leurs couches
+(vias borgnes et enterrés) et leur métallisation par outil ; les fraisages sont écrits en chemins (G00, M15, G01,
+M16). Les pastilles sont réécrites en régions, sans leurs attributs X2 : contrôlez le panneau avant commande.
+
 ### Fiche PDF de la carte
 
 Le bouton **Fiche PDF** produit un document de description de la carte : vue 3D et caractéristiques (dimensions,

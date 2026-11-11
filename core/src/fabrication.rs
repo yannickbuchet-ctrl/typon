@@ -41,24 +41,46 @@ fn fonction_x2(c: &Couche, cuivres: u32) -> Option<String> {
     })
 }
 
-/// Chemin d'une région : bord extérieur, et chaque trou rattaché au bord par une « coupure » (cut-in).
+/// Chemin d'une région : bord extérieur, et chaque trou rattaché par une « coupure » (cut-in) sans croiser ni le bord
+/// ni les autres trous : les trous sont traités du plus à droite au plus à gauche, chacun relié depuis son sommet le
+/// plus à droite au premier bord rencontré vers la droite (méthode d'earcut). La norme Gerber exige des contours
+/// qui ne se croisent pas.
 fn chemin_region(anneaux: &[Vec<Pt>]) -> Vec<Pt> {
-    let mut chemin: Vec<Pt> = Vec::new();
-    let Some(ext) = anneaux.first() else { return chemin };
+    let Some(ext) = anneaux.first() else { return Vec::new() };
     if ext.len() < 3 {
-        return chemin;
+        return Vec::new();
     }
-    chemin.extend(ext.iter().copied());
-    chemin.push(ext[0]);
-    for trou in &anneaux[1..] {
-        if trou.len() < 3 {
-            continue;
+    let mut bord: Vec<Pt> = ext.clone();
+    let mut trous: Vec<&Vec<Pt>> = anneaux[1..].iter().filter(|t| t.len() >= 3).collect();
+    let xmax = |t: &Vec<Pt>| t.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max);
+    trous.sort_by(|a, b| xmax(b).total_cmp(&xmax(a)));
+    for trou in trous {
+        // Sommet le plus à droite du trou.
+        let (im, m) = trou.iter().copied().enumerate().max_by(|a, b| a.1.x.total_cmp(&b.1.x)).unwrap();
+        // Arête du bord coupée par le rayon horizontal vers la droite, la plus proche.
+        let mut meilleur: Option<(f64, usize)> = None;
+        for k in 0..bord.len() {
+            let (a, b) = (bord[k], bord[(k + 1) % bord.len()]);
+            if (a.y > m.y) == (b.y > m.y) {
+                continue;
+            }
+            let x = a.x + (m.y - a.y) * (b.x - a.x) / (b.y - a.y);
+            if x >= m.x && meilleur.map(|(xm, _)| x < xm).unwrap_or(true) {
+                meilleur = Some((x, if a.x > b.x { k } else { (k + 1) % bord.len() }));
+            }
         }
-        chemin.extend(trou.iter().copied());
-        chemin.push(trou[0]);
-        chemin.push(ext[0]);
+        let Some((_, ip)) = meilleur else { continue };
+        let mut nouveau: Vec<Pt> = Vec::with_capacity(bord.len() + trou.len() + 2);
+        nouveau.extend_from_slice(&bord[..=ip]);
+        for k in 0..=trou.len() {
+            nouveau.push(trou[(im + k) % trou.len()]);
+        }
+        nouveau.push(bord[ip]);
+        nouveau.extend_from_slice(&bord[ip + 1..]);
+        bord = nouveau;
     }
-    chemin
+    bord.push(bord[0]);
+    bord
 }
 
 /// Gerber X2 d'un dessin répété aux décalages donnés, avec des éléments ajoutés (bords du panneau…).
@@ -153,22 +175,25 @@ pub fn gerber(dessins: &[(&Dessin, Vec<(f64, f64)>)], fonction: Option<&str>, no
 
 /* --- Excellon ---------------------------------------------------------------------------------------------------- */
 
-/// Trous (centre, diamètre) et fraisages (début, fin, diamètre).
+/// Trous (centre, diamètre), rainures (début, fin, diamètre) et chemins de fraisage (points, diamètre).
 #[derive(Default)]
 pub struct Percages {
     pub trous: Vec<(Pt, f64)>,
     pub fraisages: Vec<(Pt, Pt, f64)>,
+    pub chemins: Vec<(Vec<Pt>, f64)>,
 }
 
-pub fn excellon(p: &Percages, metallise: bool, cuivres: u32) -> String {
+/// Excellon avec l'attribut X2 de la fonction du fichier : métallisé ou non, de la couche `de` à la couche `a`.
+pub fn excellon(p: &Percages, metallise: bool, de: u32, a: u32) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "M48");
     let _ = writeln!(s, "; #@! TF.GenerationSoftware,Typon,Typon,1.0");
-    let _ = writeln!(s, "; #@! TF.FileFunction,{},1,{},{}", if metallise { "Plated" } else { "NonPlated" }, cuivres.max(2), if metallise { "PTH" } else { "NPTH" });
+    let fraisage = !p.chemins.is_empty() && p.trous.is_empty() && p.fraisages.is_empty();
+    let _ = writeln!(s, "; #@! TF.FileFunction,{},{de},{a},{}{}", if metallise { "Plated" } else { "NonPlated" }, if metallise { "PTH" } else { "NPTH" }, if fraisage { ",Rout" } else { "" });
     let _ = writeln!(s, "FMAT,2");
     let _ = writeln!(s, "METRIC");
     let mut outils: Vec<i64> = Vec::new();
-    for d in p.trous.iter().map(|t| t.1).chain(p.fraisages.iter().map(|f| f.2)) {
+    for d in p.trous.iter().map(|t| t.1).chain(p.fraisages.iter().map(|f| f.2)).chain(p.chemins.iter().map(|c| c.1)) {
         let k = (d * 1000.0).round() as i64;
         if !outils.contains(&k) {
             outils.push(k);
@@ -180,24 +205,51 @@ pub fn excellon(p: &Percages, metallise: bool, cuivres: u32) -> String {
     }
     let _ = writeln!(s, "%");
     let _ = writeln!(s, "G90");
-    let _ = writeln!(s, "G05");
+    let mesure = |d: f64| (d * 1000.0).round() as i64;
     for (i, k) in outils.iter().enumerate() {
-        let trous: Vec<_> = p.trous.iter().filter(|t| (t.1 * 1000.0).round() as i64 == *k).collect();
-        let fraisages: Vec<_> = p.fraisages.iter().filter(|f| (f.2 * 1000.0).round() as i64 == *k).collect();
-        if trous.is_empty() && fraisages.is_empty() {
+        let trous: Vec<_> = p.trous.iter().filter(|t| mesure(t.1) == *k).collect();
+        let fraisages: Vec<_> = p.fraisages.iter().filter(|f| mesure(f.2) == *k).collect();
+        let chemins: Vec<_> = p.chemins.iter().filter(|c| mesure(c.1) == *k && c.0.len() >= 2).collect();
+        if trous.is_empty() && fraisages.is_empty() && chemins.is_empty() {
             continue;
         }
         let _ = writeln!(s, "T{}", i + 1);
+        let _ = writeln!(s, "G05");
         for (c, _) in trous {
             let _ = writeln!(s, "X{:.4}Y{:.4}", c.x, c.y);
         }
         for (a, b, _) in fraisages {
             let _ = writeln!(s, "X{:.4}Y{:.4}G85X{:.4}Y{:.4}", a.x, a.y, b.x, b.y);
         }
+        // Fraisage : déplacement outil levé (G00), plongée (M15), trajet (G01), remontée (M16).
+        for (pts, _) in chemins {
+            let _ = writeln!(s, "G00X{:.4}Y{:.4}", pts[0].x, pts[0].y);
+            let _ = writeln!(s, "M15");
+            for q in &pts[1..] {
+                let _ = writeln!(s, "G01X{:.4}Y{:.4}", q.x, q.y);
+            }
+            let _ = writeln!(s, "M16");
+        }
+        let _ = writeln!(s, "G05");
     }
     let _ = writeln!(s, "T0");
     let _ = writeln!(s, "M30");
     s
+}
+
+/// Enchaîne des segments bout à bout (fraisages lus segment par segment) en chemins continus.
+fn chainer(segments: &[(Pt, Pt, f64)]) -> Vec<(Vec<Pt>, f64)> {
+    let mut chemins: Vec<(Vec<Pt>, f64)> = Vec::new();
+    for &(a, b, d) in segments {
+        if let Some(c) = chemins.last_mut() {
+            if (c.1 - d).abs() < 1e-6 && c.0.last().map(|q| q.dist(a) < 1e-4).unwrap_or(false) {
+                c.0.push(b);
+                continue;
+            }
+        }
+        chemins.push((vec![a, b], d));
+    }
+    chemins
 }
 
 /* --- ZIP (sans compression) ------------------------------------------------------------------------------------ */
@@ -284,58 +336,154 @@ fn nom_fichier(c: &Couche, ext: &str) -> String {
     format!("panneau-{base}")
 }
 
-/// Panneau de `nx` × `ny` cartes. Paramètres (mm) : ecartX, ecartY, bord (largeur des bords de manutention),
-/// bords (« haut-bas », « gauche-droite », « tous », « aucun »), separation (« vscore » ou « fraisage »), mires et
-/// trousOutil (booléens).
+/// Forme d'un rectangle (x0, y0, x1, y1), pour les opérations booléennes.
+fn rectangle(x0: f64, y0: f64, x1: f64, y1: f64) -> Prim {
+    Prim::Poly { anneaux: vec![vec![pt(x0, y0), pt(x1, y0), pt(x1, y1), pt(x0, y1)]] }
+}
+
+/// Panneau de `nx` × `ny` cartes. Paramètres (mm) : ecartX, ecartY (écart entre cartes, et entre cartes et bords en
+/// fraisage), bord (largeur des bords de manutention), bords (« haut-bas », « gauche-droite », « tous », « aucun »),
+/// separation (« vscore » ou « fraisage »), mires et trousOutil (booléens).
+///
+/// Le contour du panneau (fichier « Profile ») est le bord de la matière réelle : cadre, cartes avec leurs découpes,
+/// languettes. En fraisage, les canaux entre les cartes sont donc des découpes du contour, comme le produisent les
+/// logiciels de mise en panneau, et les languettes portent une rangée de perforations.
 pub fn panneau(couches: &[Couche], p: &Value) -> Result<(Value, Vec<u8>), String> {
-    let f = |k: &str, d: f64| p.get(k).and_then(|x| x.as_f64()).unwrap_or(d);
+    let f = |k: &str, d: f64| p.get(k).and_then(|x| x.as_f64()).filter(|x| x.is_finite()).unwrap_or(d);
     let nx = f("nx", 2.0).clamp(1.0, 30.0) as usize;
     let ny = f("ny", 2.0).clamp(1.0, 30.0) as usize;
     let vscore = p.get("separation").and_then(|v| v.as_str()) == Some("vscore");
-    let ex = if vscore { f("ecartX", 0.0) } else { f("ecartX", 2.0) }.clamp(0.0, 50.0);
-    let ey = if vscore { f("ecartY", 0.0) } else { f("ecartY", 2.0) }.clamp(0.0, 50.0);
+    let ex = f("ecartX", if vscore { 0.0 } else { 2.0 }).clamp(0.0, 50.0);
+    let ey = f("ecartY", if vscore { 0.0 } else { 2.0 }).clamp(0.0, 50.0);
     let bord = f("bord", 5.0).clamp(0.0, 50.0);
-    let bords = p.get("bords").and_then(|v| v.as_str()).unwrap_or("haut-bas");
-    let (bh, bv) = match bords {
+    let (bh, bv) = match p.get("bords").and_then(|v| v.as_str()).unwrap_or("haut-bas") {
         "tous" => (bord, bord),
         "gauche-droite" => (0.0, bord),
         "aucun" => (0.0, 0.0),
         _ => (bord, 0.0),
     };
+    // Écart entre les cartes et les bords : celui du fraisage (aucun pour les rainures en V).
+    let (gx, gy) = (if !vscore && bv > 0.0 { ex } else { 0.0 }, if !vscore && bh > 0.0 { ey } else { 0.0 });
     let mires = p.get("mires").and_then(|v| v.as_bool()).unwrap_or(true) && (bh > 0.0 || bv > 0.0);
     let trous_outil = p.get("trousOutil").and_then(|v| v.as_bool()).unwrap_or(true) && (bh >= 4.0 || bv >= 4.0);
+    let cuivres = couches.iter().filter(|c| c.role.genre == Genre::Cuivre).count() as u32;
 
-    // Carte : contour s'il y en a un, sinon les couches de cuivre.
-    let mut b = BBox::vide();
+    // Carte : bord extérieur et découpes, d'après le contour ; sinon le rectangle des couches de cuivre.
+    let mut anneaux: Vec<Vec<Pt>> = Vec::new();
     if let Some(c) = couches.iter().find(|c| c.role.genre == Genre::Contour && !c.dessin.elements.is_empty()) {
-        b = c.dessin.boite_axes();
+        anneaux = geom::anneaux_contour(&c.dessin);
     }
-    if b.est_vide() {
+    anneaux.sort_by(|a, b| geom::aire(b).abs().total_cmp(&geom::aire(a).abs()));
+    let mut b = BBox::vide();
+    if let Some(ext) = anneaux.first() {
+        for q in ext {
+            b.ajoute(*q);
+        }
+        // Le bord extérieur, puis les découpes qui sont à l'intérieur (le reste : cartouches, textes… ignorés).
+        let ext = ext.clone();
+        let decoupes: Vec<Vec<Pt>> = anneaux[1..].iter().filter(|a| geom::point_dans_anneau(a[0], &ext)).cloned().collect();
+        anneaux = std::iter::once(ext).chain(decoupes).collect();
+    } else {
         for c in couches.iter().filter(|c| c.role.genre == Genre::Cuivre) {
             b.union(&c.dessin.boite());
+        }
+        if !b.est_vide() {
+            anneaux = vec![vec![pt(b.x0, b.y0), pt(b.x1, b.y0), pt(b.x1, b.y1), pt(b.x0, b.y1)]];
         }
     }
     if b.est_vide() || b.x1 - b.x0 < 0.5 || b.y1 - b.y0 < 0.5 {
         return Err("Dimensions de la carte introuvables.".into());
     }
     let (w, h) = (b.x1 - b.x0, b.y1 - b.y0);
-    let largeur = 2.0 * bv + nx as f64 * w + (nx - 1) as f64 * ex;
-    let hauteur = 2.0 * bh + ny as f64 * h + (ny - 1) as f64 * ey;
+    let largeur = 2.0 * (bv + gx) + nx as f64 * w + (nx - 1) as f64 * ex;
+    let hauteur = 2.0 * (bh + gy) + ny as f64 * h + (ny - 1) as f64 * ey;
+    let origine = |i: usize, j: usize| (bv + gx + i as f64 * (w + ex), bh + gy + j as f64 * (h + ey));
     let mut decalages: Vec<(f64, f64)> = Vec::new();
     for j in 0..ny {
         for i in 0..nx {
-            decalages.push((bv + i as f64 * (w + ex) - b.x0, bh + j as f64 * (h + ey) - b.y0));
+            let (x, y) = origine(i, j);
+            decalages.push((x - b.x0, y - b.y0));
         }
     }
-    let cuivres = couches.iter().filter(|c| c.role.genre == Genre::Cuivre).count() as u32;
 
-    // Éléments ajoutés : mires (cuivre et ouverture du vernis), cadre du panneau.
+    // Matière du panneau : cartes (avec leurs découpes), bords, languettes. Trous des languettes (perforations).
+    let mut matiere = Dessin::default();
+    let o = matiere.nouvel_objet(Vec::new());
+    let mut perforations: Vec<(Pt, f64)> = Vec::new();
+    if vscore || (ex == 0.0 && ey == 0.0) {
+        matiere.ajoute(rectangle(0.0, 0.0, largeur, hauteur), true, o);
+        for &(dx, dy) in &decalages {
+            for a in &anneaux[1..] {
+                matiere.ajoute(Prim::Poly { anneaux: vec![a.iter().map(|q| pt(q.x + dx, q.y + dy)).collect()] }, false, o);
+            }
+        }
+    } else {
+        if bh > 0.0 {
+            matiere.ajoute(rectangle(0.0, 0.0, largeur, bh), true, o);
+            matiere.ajoute(rectangle(0.0, hauteur - bh, largeur, hauteur), true, o);
+        }
+        if bv > 0.0 {
+            matiere.ajoute(rectangle(0.0, 0.0, bv, hauteur), true, o);
+            matiere.ajoute(rectangle(largeur - bv, 0.0, largeur, hauteur), true, o);
+        }
+        for j in 0..ny {
+            for i in 0..nx {
+                let (x0, y0) = origine(i, j);
+                let (dx, dy) = (x0 - b.x0, y0 - b.y0);
+                matiere.ajoute(Prim::Poly { anneaux: anneaux.iter().map(|a| a.iter().map(|q| pt(q.x + dx, q.y + dy)).collect()).collect() }, true, o);
+                // Languettes au milieu de chaque côté qui fait face à une autre carte ou à un bord.
+                let (x1, y1) = (x0 + w, y0 + h);
+                let lt = |l: f64| (l / 3.0).min(5.0);
+                let mut ajouter = |a: Pt, c: Pt, nx_: f64, ny_: f64, ecart: f64| {
+                    let l = a.dist(c);
+                    let m = pt((a.x + c.x) / 2.0, (a.y + c.y) / 2.0);
+                    let (ux, uy) = ((c.x - a.x) / l, (c.y - a.y) / l);
+                    let demi = lt(l) / 2.0;
+                    // Rectangle de la languette : du bord de la carte (1 mm à l'intérieur) au voisin (1 mm au-delà).
+                    let coins = [(-demi, -1.0), (demi, -1.0), (demi, ecart + 1.0), (-demi, ecart + 1.0)].map(|(s, t)| pt(m.x + ux * s + nx_ * t, m.y + uy * s + ny_ * t));
+                    matiere.ajoute(Prim::Poly { anneaux: vec![coins.to_vec()] }, true, o);
+                    let n = ((lt(l) - 1.0) / 0.8).floor().max(1.0) as i32;
+                    for k in 0..n {
+                        let s = (k as f64 - (n - 1) as f64 / 2.0) * 0.8;
+                        perforations.push((pt(m.x + ux * s, m.y + uy * s), 0.5));
+                    }
+                };
+                if i > 0 || bv > 0.0 {
+                    ajouter(pt(x0, y0), pt(x0, y1), -1.0, 0.0, if i > 0 { ex } else { gx });
+                }
+                if i + 1 < nx || bv > 0.0 {
+                    ajouter(pt(x1, y0), pt(x1, y1), 1.0, 0.0, if i + 1 < nx { ex } else { gx });
+                }
+                if j > 0 || bh > 0.0 {
+                    ajouter(pt(x0, y0), pt(x1, y0), 0.0, -1.0, if j > 0 { ey } else { gy });
+                }
+                if j + 1 < ny || bh > 0.0 {
+                    ajouter(pt(x0, y1), pt(x1, y1), 0.0, 1.0, if j + 1 < ny { ey } else { gy });
+                }
+            }
+        }
+    }
+    // Contour : bords de la matière (et de ses trous), en trait.
+    let mut contour = Dessin::default();
+    let o = contour.nouvel_objet(vec![("Fonction".into(), "Profile".into())]);
+    for forme in crate::dfm::aplatir_formes(&matiere) {
+        for a in forme {
+            for k in 0..a.len() {
+                let (p0, p1) = (a[k], a[(k + 1) % a.len()]);
+                contour.ajoute(Prim::Cap { a: pt(p0[0], p0[1]), b: pt(p1[0], p1[1]), r: 0.05 }, true, o);
+            }
+        }
+    }
+
+    // Mires (à 12 mm des coins, loin des trous d'outillage) et trous d'outillage (Ø 3 mm, au coin des bords).
     let mut positions_mires: Vec<Pt> = Vec::new();
     if mires {
+        let mx = 12.0_f64.min(largeur / 4.0);
+        let my = 12.0_f64.min(hauteur / 4.0);
         if bh > 0.0 {
-            positions_mires.extend([pt(5.0_f64.min(largeur / 4.0), bh / 2.0), pt(largeur - 5.0_f64.min(largeur / 4.0), bh / 2.0), pt(5.0_f64.min(largeur / 4.0), hauteur - bh / 2.0)]);
+            positions_mires.extend([pt(mx, bh / 2.0), pt(largeur - mx, bh / 2.0), pt(mx, hauteur - bh / 2.0)]);
         } else {
-            positions_mires.extend([pt(bv / 2.0, 5.0_f64.min(hauteur / 4.0)), pt(bv / 2.0, hauteur - 5.0_f64.min(hauteur / 4.0)), pt(largeur - bv / 2.0, 5.0_f64.min(hauteur / 4.0))]);
+            positions_mires.extend([pt(bv / 2.0, my), pt(bv / 2.0, hauteur - my), pt(largeur - bv / 2.0, my)]);
         }
     }
     let disque = |r: f64, pts: &[Pt]| {
@@ -348,115 +496,129 @@ pub fn panneau(couches: &[Couche], p: &Value) -> Result<(Value, Vec<u8>), String
     };
     let mires_cuivre = disque(0.5, &positions_mires);
     let mires_vernis = disque(1.0, &positions_mires);
-    let mut cadre = Dessin::default();
-    let o = cadre.nouvel_objet(vec![("Fonction".into(), "Profile".into())]);
-    let coins = [pt(0.0, 0.0), pt(largeur, 0.0), pt(largeur, hauteur), pt(0.0, hauteur)];
-    for k in 0..4 {
-        cadre.ajoute(Prim::Cap { a: coins[k], b: coins[(k + 1) % 4], r: 0.05 }, true, o);
-    }
-
-    // Trous non métallisés du panneau : outillage (coins) et perforations des languettes.
     let mut npth_panneau = Percages::default();
     if trous_outil {
         let m = if bh >= 4.0 { pt(3.5_f64.min(largeur / 8.0), bh / 2.0) } else { pt(bv / 2.0, 3.5_f64.min(hauteur / 8.0)) };
-        let (mx, my) = (m.x, m.y);
-        for c in [pt(mx, my), pt(largeur - mx, my), pt(mx, hauteur - my), pt(largeur - mx, hauteur - my)] {
+        for c in [pt(m.x, m.y), pt(largeur - m.x, m.y), pt(m.x, hauteur - m.y), pt(largeur - m.x, hauteur - m.y)] {
             npth_panneau.trous.push((c, 3.0));
         }
     }
-    // Séparation : rainures en V (lignes) ou languettes perforées au milieu de chaque côté qui fait face à un vide.
-    let mut separation = Dessin::default();
-    let o = separation.nouvel_objet(vec![("Fonction".into(), if vscore { "V-score".into() } else { "Rout".into() })]);
+    npth_panneau.trous.extend(perforations);
+
+    // Rainures en V : à chaque bord de carte intérieur au panneau.
+    let mut rainures = Dessin::default();
     if vscore {
+        let o = rainures.nouvel_objet(vec![("Fonction".into(), "V-score".into())]);
         let mut xs: Vec<f64> = Vec::new();
         let mut ys: Vec<f64> = Vec::new();
-        for i in 0..=nx {
-            let x = bv + i as f64 * (w + ex) - if i == nx { ex } else { 0.0 };
-            if (i > 0 || bv > 0.0) && (i < nx || bv > 0.0) {
-                xs.push(x);
-            }
-            if ex > 0.0 && i > 0 && i < nx {
-                xs.push(bv + i as f64 * (w + ex) - ex);
-            }
+        for i in 0..nx {
+            let (x, _) = origine(i, 0);
+            xs.extend([x, x + w]);
         }
-        for j in 0..=ny {
-            let y = bh + j as f64 * (h + ey) - if j == ny { ey } else { 0.0 };
-            if (j > 0 || bh > 0.0) && (j < ny || bh > 0.0) {
-                ys.push(y);
-            }
-            if ey > 0.0 && j > 0 && j < ny {
-                ys.push(bh + j as f64 * (h + ey) - ey);
-            }
+        for j in 0..ny {
+            let (_, y) = origine(0, j);
+            ys.extend([y, y + h]);
         }
+        let interieur = |v: f64, max: f64| v > 0.01 && v < max - 0.01;
+        xs.retain(|x| interieur(*x, largeur));
+        ys.retain(|y| interieur(*y, hauteur));
+        xs.sort_by(f64::total_cmp);
+        ys.sort_by(f64::total_cmp);
+        xs.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+        ys.dedup_by(|a, b| (*a - *b).abs() < 0.01);
         for x in xs {
-            separation.ajoute(Prim::Cap { a: pt(x, 0.0), b: pt(x, hauteur), r: 0.1 }, true, o);
+            rainures.ajoute(Prim::Cap { a: pt(x, 0.0), b: pt(x, hauteur), r: 0.1 }, true, o);
         }
         for y in ys {
-            separation.ajoute(Prim::Cap { a: pt(0.0, y), b: pt(largeur, y), r: 0.1 }, true, o);
-        }
-    } else {
-        // Fraisage autour de chaque carte (contour répété) ; languettes de 5 trous Ø 0,5 au pas de 0,8 mm.
-        for &(dx, dy) in &decalages {
-            let (x0, y0, x1, y1) = (b.x0 + dx, b.y0 + dy, b.x1 + dx, b.y1 + dy);
-            let mut cotes: Vec<(Pt, Pt)> = Vec::new();
-            if y0 > 0.01 {
-                cotes.push((pt(x0, y0), pt(x1, y0)));
-            }
-            if y1 < hauteur - 0.01 {
-                cotes.push((pt(x0, y1), pt(x1, y1)));
-            }
-            if x0 > 0.01 {
-                cotes.push((pt(x0, y0), pt(x0, y1)));
-            }
-            if x1 < largeur - 0.01 {
-                cotes.push((pt(x1, y0), pt(x1, y1)));
-            }
-            for (a, c) in cotes {
-                let m = pt((a.x + c.x) / 2.0, (a.y + c.y) / 2.0);
-                let l = a.dist(c).max(1e-9);
-                let (ux, uy) = ((c.x - a.x) / l, (c.y - a.y) / l);
-                for k in -2..=2 {
-                    npth_panneau.trous.push((pt(m.x + ux * 0.8 * k as f64, m.y + uy * 0.8 * k as f64), 0.5));
-                }
-            }
+            rainures.ajoute(Prim::Cap { a: pt(0.0, y), b: pt(largeur, y), r: 0.1 }, true, o);
         }
     }
 
     // Fichiers
     let mut fichiers: Vec<(String, Vec<u8>)> = Vec::new();
+    let ajouter_fichier = |fichiers: &mut Vec<(String, Vec<u8>)>, mut nom: String, contenu: Vec<u8>| {
+        // Deux couches au même nom (formats d'origine différents) : suffixe numéroté.
+        let base = nom.clone();
+        let mut k = 2;
+        while fichiers.iter().any(|f| f.0 == nom) {
+            nom = match base.rsplit_once('.') {
+                Some((a, e)) => format!("{a}-{k}.{e}"),
+                None => format!("{base}-{k}"),
+            };
+            k += 1;
+        }
+        fichiers.push((nom, contenu));
+    };
     let mut a_contour = false;
     let mut a_npth = false;
+    let alertes: Vec<String> = Vec::new();
     for c in couches.iter().filter(|c| !c.dessin.elements.is_empty()) {
         match c.role.genre {
             Genre::Percage | Genre::Fraisage => {
-                let libelle = format!("{} {}", c.role.libelle, c.nom).to_lowercase();
-                let metallise = !(libelle.contains("non métallisé") || libelle.contains("npth") || libelle.contains("non-plated") || libelle.contains("non plated"));
+                let metallise = crate::dfm::couche_metallisee(c);
+                let (de, a) = crate::dfm::etendue_percage(c, couches).unwrap_or((1, cuivres.max(2)));
                 let mut pc = Percages::default();
-                for &(dx, dy) in &decalages {
-                    for e in c.dessin.elements.iter().filter(|e| e.sombre) {
-                        if let Prim::Cap { a, b: q, r } = e.prim {
-                            let (a, q) = (pt(a.x + dx, a.y + dy), pt(q.x + dx, q.y + dy));
-                            if a.dist(q) < 1e-9 {
+                // Trous d'une autre métallisation que la couche (fichier mixte, d'après ses outils) : fichier à part.
+                let mut autres = Percages::default();
+                let mut segments: Vec<(Pt, Pt, f64)> = Vec::new();
+                for e in c.dessin.elements.iter().filter(|e| e.sombre) {
+                    if let Prim::Cap { a, b: q, r } = e.prim {
+                        if a.dist(q) < 1e-9 {
+                            if crate::dfm::metallise_trou(c, 2.0 * r, metallise) == metallise {
                                 pc.trous.push((a, 2.0 * r));
                             } else {
-                                pc.fraisages.push((a, q, 2.0 * r));
+                                autres.trous.push((a, 2.0 * r));
                             }
+                        } else {
+                            segments.push((a, q, 2.0 * r));
                         }
                     }
                 }
+                // Fraisages lus segment par segment : réécrits en chemins continus (G00, M15, G01…, M16).
+                let mut chemins = chainer(&segments);
+                if c.role.genre == Genre::Percage {
+                    // Dans un fichier de perçage, un chemin d'un seul segment est une rainure (G85).
+                    for (pts, d) in std::mem::take(&mut chemins) {
+                        if pts.len() == 2 {
+                            pc.fraisages.push((pts[0], pts[1], d));
+                        } else {
+                            chemins.push((pts, d));
+                        }
+                    }
+                }
+                let mut copie = Percages::default();
+                for &(dx, dy) in &decalages {
+                    let t = |q: Pt| pt(q.x + dx, q.y + dy);
+                    copie.trous.extend(pc.trous.iter().map(|(q, d)| (t(*q), *d)));
+                    copie.fraisages.extend(pc.fraisages.iter().map(|(q, r, d)| (t(*q), t(*r), *d)));
+                    copie.chemins.extend(chemins.iter().map(|(pts, d)| (pts.iter().map(|q| t(*q)).collect(), *d)));
+                }
                 if !metallise && !a_npth {
-                    pc.trous.extend(npth_panneau.trous.iter().copied());
+                    copie.trous.extend(npth_panneau.trous.iter().copied());
                     a_npth = true;
                 }
-                fichiers.push((nom_fichier(c, "drl").replace(".gbr", ".drl"), excellon(&pc, metallise, cuivres).into_bytes()));
+                let nom = nom_fichier(c, "drl");
+                let nom = if nom.ends_with(".gbr") { nom.replace(".gbr", ".drl") } else { nom };
+                if !autres.trous.is_empty() {
+                    let mut copie_autres = Percages::default();
+                    for &(dx, dy) in &decalages {
+                        copie_autres.trous.extend(autres.trous.iter().map(|(q, d)| (pt(q.x + dx, q.y + dy), *d)));
+                    }
+                    let suffixe = if metallise { "-NPTH" } else { "-PTH" };
+                    let nom_autres = match nom.rsplit_once('.') {
+                        Some((b, e)) => format!("{b}{suffixe}.{e}"),
+                        None => format!("{nom}{suffixe}"),
+                    };
+                    ajouter_fichier(&mut fichiers, nom_autres, excellon(&copie_autres, !metallise, de, a).into_bytes());
+                }
+                ajouter_fichier(&mut fichiers, nom, excellon(&copie, metallise, de, a).into_bytes());
             }
             Genre::Contour => {
                 if a_contour {
                     continue;
                 }
                 a_contour = true;
-                let texte = gerber(&[(&cadre, vec![(0.0, 0.0)])], Some("Profile,NP"), "Contour du panneau");
-                fichiers.push((nom_fichier(c, "gbr"), texte.into_bytes()));
+                ajouter_fichier(&mut fichiers, nom_fichier(c, "gbr"), gerber(&[(&contour, vec![(0.0, 0.0)])], Some("Profile,NP"), "Contour du panneau").into_bytes());
             }
             Genre::Netlist | Genre::Job | Genre::Plan => {}
             _ => {
@@ -468,34 +630,20 @@ pub fn panneau(couches: &[Couche], p: &Value) -> Result<(Value, Vec<u8>), String
                 if mires && matches!(c.role.genre, Genre::Masque) {
                     sources.push((&mires_vernis, vec![(0.0, 0.0)]));
                 }
-                let texte = gerber(&sources, fonction.as_deref(), &c.nom);
-                fichiers.push((nom_fichier(c, "gbr"), texte.into_bytes()));
+                ajouter_fichier(&mut fichiers, nom_fichier(c, "gbr"), gerber(&sources, fonction.as_deref(), &c.nom).into_bytes());
             }
         }
     }
     if !a_contour {
-        fichiers.push(("panneau-contour.gbr".into(), gerber(&[(&cadre, vec![(0.0, 0.0)])], Some("Profile,NP"), "Contour du panneau").into_bytes()));
+        ajouter_fichier(&mut fichiers, "panneau-contour.gbr".into(), gerber(&[(&contour, vec![(0.0, 0.0)])], Some("Profile,NP"), "Contour du panneau").into_bytes());
     }
     if !a_npth && !npth_panneau.trous.is_empty() {
-        fichiers.push(("panneau-NPTH.drl".into(), excellon(&npth_panneau, false, cuivres).into_bytes()));
+        ajouter_fichier(&mut fichiers, "panneau-NPTH.drl".into(), excellon(&npth_panneau, false, 1, cuivres.max(2)).into_bytes());
     }
-    if !separation.elements.is_empty() {
-        let (nom, fonction) = if vscore { ("panneau-rainurage-V.gbr", "Vcut") } else { ("panneau-fraisage.gbr", "Other,Rout") };
-        let mut d = separation.clone();
-        if !vscore {
-            // Le contour de chaque carte, à fraiser.
-            if let Some(c) = couches.iter().find(|c| c.role.genre == Genre::Contour) {
-                let o = d.nouvel_objet(vec![("Fonction".into(), "Rout".into())]);
-                for &(dx, dy) in &decalages {
-                    for e in &c.dessin.elements {
-                        d.ajoute(e.prim.transformee(&geom::Transfo::translation(dx, dy)), true, o);
-                    }
-                }
-            }
-        }
-        fichiers.push((nom.into(), gerber(&[(&d, vec![(0.0, 0.0)])], Some(fonction), if vscore { "Rainures en V" } else { "Fraisage des cartes" }).into_bytes()));
+    if !rainures.elements.is_empty() {
+        ajouter_fichier(&mut fichiers, "panneau-rainurage-V.gbr".into(), gerber(&[(&rainures, vec![(0.0, 0.0)])], Some("Vcut"), "Rainures en V").into_bytes());
     }
     let noms: Vec<&str> = fichiers.iter().map(|f| f.0.as_str()).collect();
-    let j = json!({"fichiers": noms, "largeur": largeur, "hauteur": hauteur, "cartes": nx * ny, "carte": [w, h]});
+    let j = json!({"fichiers": noms, "largeur": largeur, "hauteur": hauteur, "cartes": nx * ny, "carte": [w, h], "alertes": alertes});
     Ok((j, zip(&fichiers)))
 }

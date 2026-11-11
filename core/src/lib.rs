@@ -698,6 +698,8 @@ fn ajouter_odb(o: odb::Odb, couches: &mut Vec<Couche>, meta: &mut serde_json::Ma
             "fin": c.fin,
             "negative": c.polarite_negative,
             "elements": c.elements,
+            // Métallisation par outil (diamètre de perçage en mm) : un fichier peut mêler les deux.
+            "outils": c.outils.iter().map(|t| json!([t.percage, t.genre != "non métallisé"])).collect::<Vec<_>>(),
         });
         let nom = c.role.libelle.clone();
         let fichier = if o.format == "ODB++" { format!("steps/{}/layers/{}", o.etape, c.nom) } else { format!("{} · {}", o.format, c.nom) };

@@ -434,25 +434,48 @@ struct Trou {
     dessous: bool,
 }
 
-/// Faces atteintes par un fichier de perçage : couches de début et de fin (ODB++), ou « 1–4 » de l'attribut X2.
-fn faces_atteintes(c: &Couche, couches: &[Couche]) -> (bool, bool) {
-    let cuivres: Vec<&Couche> = couches.iter().filter(|k| k.role.genre == Genre::Cuivre).collect();
-    let nom_odb = |cote: Cote| cuivres.iter().find(|k| k.role.cote == cote).and_then(|k| k.meta.get("nomOdb")).and_then(|v| v.as_str()).map(|s| s.to_ascii_lowercase());
+/// Couches de cuivre reliées par un fichier de perçage, numérotées du dessus (1) au dessous (n) : d'après les couches
+/// de début et de fin (ODB++), ou « 1–4 » du libellé X2. None : traversant (ou inconnu).
+pub fn etendue_percage(c: &Couche, couches: &[Couche]) -> Option<(u32, u32)> {
+    let mut cuivres: Vec<&Couche> = couches.iter().filter(|k| k.role.genre == Genre::Cuivre).collect();
+    cuivres.sort_by(|a, b| b.role.rang.cmp(&a.role.rang));
+    let n = cuivres.len() as u32;
     let debut = c.meta.get("debut").and_then(|v| v.as_str()).unwrap_or("").to_ascii_lowercase();
     let fin = c.meta.get("fin").and_then(|v| v.as_str()).unwrap_or("").to_ascii_lowercase();
     if !debut.is_empty() {
-        let (h, b) = (nom_odb(Cote::Dessus), nom_odb(Cote::Dessous));
-        let touche = |n: &Option<String>| n.as_ref().map(|n| *n == debut || *n == fin).unwrap_or(true);
-        return (touche(&h), touche(&b));
+        let rang = |nom: &str| cuivres.iter().position(|k| k.meta.get("nomOdb").and_then(|v| v.as_str()).map(|s| s.eq_ignore_ascii_case(nom)).unwrap_or(false)).map(|i| i as u32 + 1);
+        let (a, b) = (rang(&debut)?, rang(&fin)?);
+        return Some((a.min(b), a.max(b)));
     }
-    // « Perçage métallisé 1–4 » (X2) : de la couche a à la couche b.
     let nombres: Vec<u32> = c.role.libelle.split(|ch: char| !ch.is_ascii_digit()).filter_map(|x| x.parse().ok()).collect();
-    if nombres.len() >= 2 {
-        let n = cuivres.len() as u32;
-        let (a, b) = (nombres[0].min(nombres[1]), nombres[0].max(nombres[1]));
-        return (a <= 1, n == 0 || b >= n);
+    if nombres.len() >= 2 && n > 0 {
+        let (a, b) = (nombres[0].min(nombres[1]).max(1), nombres[0].max(nombres[1]).min(n));
+        return Some((a, b));
     }
-    (true, true)
+    None
+}
+
+/// Un trou de ce diamètre est-il métallisé ? D'après l'outil de même diamètre (ODB++, IPC-2581), sinon `defaut`
+/// (la couche entière).
+pub fn metallise_trou(c: &Couche, diametre: f64, defaut: bool) -> bool {
+    c.meta.get("outils").and_then(|o| o.as_array()).and_then(|outils| {
+        outils.iter().filter_map(|t| Some((t.get(0)?.as_f64()?, t.get(1)?.as_bool()?))).find(|(d, _)| (d - diametre).abs() < 0.003).map(|(_, m)| m)
+    }).unwrap_or(defaut)
+}
+
+/// Métallisation d'une couche de perçage, d'après son libellé (sans information par outil).
+pub fn couche_metallisee(c: &Couche) -> bool {
+    let libelle = format!("{} {}", c.role.libelle, c.nom).to_lowercase();
+    !(libelle.contains("non métallisé") || libelle.contains("npth") || libelle.contains("non-plated") || libelle.contains("non plated"))
+}
+
+/// Faces atteintes par un fichier de perçage (vias borgnes et enterrés : pas toutes).
+fn faces_atteintes(c: &Couche, couches: &[Couche]) -> (bool, bool) {
+    let n = couches.iter().filter(|k| k.role.genre == Genre::Cuivre).count() as u32;
+    match etendue_percage(c, couches) {
+        Some((a, b)) => (a <= 1, n == 0 || b >= n),
+        None => (true, true),
+    }
 }
 
 pub fn verifier(couches: &[Couche], regles: &Regles) -> Value {
@@ -486,13 +509,12 @@ pub fn verifier(couches: &[Couche], regles: &Regles) -> Value {
     // Trous
     let mut trous: Vec<Trou> = Vec::new();
     for c in couches.iter().filter(|c| c.role.genre == Genre::Percage || c.role.genre == Genre::Fraisage) {
-        let libelle = format!("{} {}", c.role.libelle, c.nom).to_lowercase();
-        let metallise = !(libelle.contains("non métallisé") || libelle.contains("npth") || libelle.contains("non-plated") || libelle.contains("non plated"));
+        let metallise = couche_metallisee(c);
         let (dessus, dessous) = faces_atteintes(c, couches);
         for e in c.dessin.elements.iter().filter(|e| e.sombre) {
             if let Prim::Cap { a, b, r } = e.prim {
                 if a.dist(b) < 1e-6 && r > 0.0005 {
-                    trous.push(Trou { c: a, r, metallise, dessus, dessous });
+                    trous.push(Trou { c: a, r, metallise: metallise_trou(c, 2.0 * r, metallise), dessus, dessous });
                 }
             }
         }
