@@ -412,11 +412,17 @@ fn dfm() {
         let t0 = Instant::now();
         let r = typon_core::dfm::verifier(&lot.couches, &regles);
         println!("DFM {nom} : {:.2} s, vérifiées {}, comptes {}", t0.elapsed().as_secs_f64(), r["verifiees"], r["comptes"]);
-        for x in r["resultats"].as_array().unwrap().iter().filter(|x| x["regle"] == "court" || x["regle"] == "isolement").take(6) {
+        for x in r["resultats"].as_array().unwrap().iter().filter(|x| nom.starts_with("demo") || x["regle"] == "court" || x["regle"] == "isolement").take(12) {
             println!("   {x}");
         }
         if nom.starts_with("demo") {
             assert!(r["verifiees"].as_array().unwrap().len() >= 8, "{nom} : règles vérifiées {}", r["verifiees"]);
+            // Exactement les six défauts volontaires de docs/defauts-exemple.md (anneau et bord : sur les deux faces).
+            assert_eq!(r["comptes"], serde_json::json!({"anneau": 2, "cuivreBord": 2, "isolement": 1, "percage": 1, "piste": 1, "serigraphiePastille": 1}), "{nom}");
+            for (regle, x, y) in [("piste", 52.35, 30.94), ("isolement", 35.0, 5.55), ("anneau", 22.8, 19.0), ("cuivreBord", 30.0, 0.55), ("percage", 40.5, 14.5), ("serigraphiePastille", 14.2, 6.85)] {
+                let trouve = r["resultats"].as_array().unwrap().iter().any(|d| d["regle"] == regle && (d["x"].as_f64().unwrap() - x).hypot(d["y"].as_f64().unwrap() - y) < 1.0);
+                assert!(trouve, "{nom} : défaut {regle} attendu vers ({x} ; {y})");
+            }
         }
     }
 }

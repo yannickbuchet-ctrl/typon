@@ -362,6 +362,69 @@ fn net_de(d: &Dessin, objet: u32) -> Option<&str> {
     d.info_objet(objet)?.iter().find(|(k, _)| k == "Net").map(|(_, v)| v.as_str()).filter(|v| !v.is_empty() && !matches!(*v, "$NONE$" | "N/C" | "NC" | "No Net" | "<No Net>"))
 }
 
+/// Pastilles d'une couche de cuivre (disques, rectangles, petits polygones), rangées dans une grille.
+struct Pastilles<'a> {
+    prims: Vec<&'a Prim>,
+    grille: HashMap<(i64, i64), Vec<usize>>,
+}
+
+impl<'a> Pastilles<'a> {
+    fn nouvelles(d: &'a Dessin) -> Pastilles<'a> {
+        let mut prims = Vec::new();
+        let mut grille: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+        for e in d.elements.iter().filter(|e| e.sombre) {
+            let b = e.prim.boite_englobante();
+            let pastille = match &e.prim {
+                Prim::Cap { a, b: q, r } => a.dist(*q) < 1e-9 && *r > 0.0,
+                Prim::Boite { .. } => true,
+                Prim::Poly { anneaux } => anneaux.len() == 1 && b.x1 - b.x0 < 8.0 && b.y1 - b.y0 < 8.0,
+            };
+            if !pastille {
+                continue;
+            }
+            let i = prims.len();
+            prims.push(&e.prim);
+            let c = pt((b.x0 + b.x1) / 2.0, (b.y0 + b.y1) / 2.0);
+            grille.entry(((c.x / 2.0).floor() as i64, (c.y / 2.0).floor() as i64)).or_default().push(i);
+        }
+        Pastilles { prims, grille }
+    }
+
+    /// Distance du centre du trou au bord de la plus grande pastille qui le contient.
+    fn anneau(&self, p: Pt) -> Option<f64> {
+        let (cx, cy) = ((p.x / 2.0).floor() as i64, (p.y / 2.0).floor() as i64);
+        let mut meilleur: Option<f64> = None;
+        for dx in -2..=2 {
+            for dy in -2..=2 {
+                for &i in self.grille.get(&(cx + dx, cy + dy)).map(|v| v.as_slice()).unwrap_or(&[]) {
+                    let d = match self.prims[i] {
+                        Prim::Cap { a, r, .. } => r - a.dist(p),
+                        Prim::Boite { c, hw, hh, ang, rad } => {
+                            let (s, co) = ang.sin_cos();
+                            let (dx, dy) = (p.x - c.x, p.y - c.y);
+                            let (lx, ly) = ((dx * co + dy * s).abs(), (-dx * s + dy * co).abs());
+                            let (qx, qy) = (lx - (hw - rad), ly - (hh - rad));
+                            -((qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - rad)
+                        }
+                        Prim::Poly { anneaux } => {
+                            if geom::point_dans_anneau(p, &anneaux[0]) {
+                                let a = &anneaux[0];
+                                (0..a.len()).map(|k| geom::dist_segment(p, a[k], a[(k + 1) % a.len()])).fold(f64::INFINITY, f64::min)
+                            } else {
+                                -1.0
+                            }
+                        }
+                    };
+                    if d > 0.0 && meilleur.map(|m| d > m).unwrap_or(true) {
+                        meilleur = Some(d);
+                    }
+                }
+            }
+        }
+        meilleur
+    }
+}
+
 struct Trou {
     c: Pt,
     r: f64,
@@ -582,14 +645,24 @@ pub fn verifier(couches: &[Couche], regles: &Regles) -> Value {
         }
     }
 
-    // Anneau annulaire et pastille absente, sur les couches externes, pour les trous métallisés.
+    // Anneau annulaire et pastille absente, sur les couches externes, pour les trous métallisés. L'anneau se mesure sur
+    // la pastille posée sur le trou (la plus grande), comme le font les fabricants ; sans pastille, sur le cuivre
+    // qui entoure le trou.
     if trous.iter().any(|t| t.metallise) && !ilots_externes.is_empty() {
         note("anneau");
         let noms: HashMap<Cote, String> = couches.iter().filter(|c| c.role.genre == Genre::Cuivre && (c.role.cote == Cote::Dessus || c.role.cote == Cote::Dessous)).map(|c| (c.role.cote, c.nom.clone())).collect();
         for (cote, ilots) in &ilots_externes {
             let reperage = Reperage::nouveau(ilots);
             let nom = noms.get(cote).cloned().unwrap_or_default();
+            let pastilles = couches.iter().find(|c| c.role.genre == Genre::Cuivre && c.role.cote == *cote).map(|c| Pastilles::nouvelles(&c.dessin));
             for t in trous.iter().filter(|t| t.metallise && if *cote == Cote::Dessus { t.dessus } else { t.dessous }) {
+                if let Some(a) = pastilles.as_ref().and_then(|p| p.anneau(t.c)) {
+                    let anneau = a - t.r;
+                    if anneau < regles.anneau - 1e-6 {
+                        res.push(Resultat { regle: "anneau", couche: nom.clone(), x: t.c.x, y: t.c.y, valeur: anneau.max(0.0), limite: regles.anneau, details: format!("Ø {:.3} mm", 2.0 * t.r) });
+                    }
+                    continue;
+                }
                 match reperage.contenant(ilots, t.c) {
                     Some(i) => {
                         let anneau = ilots[i].distance_bord(t.c) - t.r;
@@ -665,6 +738,18 @@ pub fn verifier(couches: &[Couche], regles: &Regles) -> Value {
         }
     }
 
+    // Défauts de surface voisins (les lettres d'un même texte) : regroupés, à moins de 1,5 mm les uns des autres.
+    let mut regroupes: Vec<Resultat> = Vec::new();
+    for x in res.into_iter() {
+        if matches!(x.regle, "serigraphiePastille" | "serigraphieHors") {
+            if let Some(g) = regroupes.iter_mut().find(|g| g.regle == x.regle && g.couche == x.couche && (g.x - x.x).hypot(g.y - x.y) < 1.5) {
+                g.valeur += x.valeur;
+                continue;
+            }
+        }
+        regroupes.push(x);
+    }
+    let mut res = regroupes;
     // Tri : par règle, le plus grave d'abord (plus petite valeur), et au plus 2000 résultats par règle.
     res.sort_by(|a, b| a.regle.cmp(b.regle).then(a.valeur.partial_cmp(&b.valeur).unwrap_or(std::cmp::Ordering::Equal)));
     let mut comptes: HashMap<&'static str, usize> = HashMap::new();
