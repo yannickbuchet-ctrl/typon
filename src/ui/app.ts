@@ -290,6 +290,7 @@ export class App {
           if (f.length) await this.ouvrirFichiers(f, "B");
         }, { texte: t("barre.comparer") }));
         elements.push(b("cube", this.en3d ? t("3d.revenir2d") : t("3d.voir"), () => this.basculer3d(), { texte: "3D", actif: this.en3d }));
+        elements.push(b("pdf", t("fiche.titre"), () => void this.fiche(), { texte: t("fiche.bouton") }));
       }
       elements.push(el("span", { class: "espace" }));
       if (this.en3d && this.vue3d) {
@@ -1059,6 +1060,16 @@ export class App {
   /** Nom des fichiers CSV d'une comparaison : « <A>-<B> ». */
   private nomComparaison(): string {
     return `${this.docA?.nom ?? "A"}-${this.docB?.nom ?? "B"}`;
+  }
+
+  /** Fiche PDF de la carte ouverte (A). */
+  private async fiche() {
+    const doc = this.docA;
+    if (!doc) return;
+    const { fichePdf } = await import("./fiche");
+    const ok = await this.attendre(t("etat.preparationFiche"), () => fichePdf({ doc, rendu: this.vue().rendu, unite: this.unite }).then(() => true));
+    this.vue().redessiner();
+    if (ok) this.message(t("etat.ficheEnregistree"), "succes");
   }
 
   private async rapport() {

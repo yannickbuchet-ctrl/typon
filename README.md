@@ -61,6 +61,13 @@ Eagle, OrCAD, LibrePCB).
   (séparateur « ; », virgule décimale, UTF-8) et contient toutes les lignes, même celles que le filtre masque ou que
   l'affichage limite, dans l'ordre du tri choisi.
 
+### Fiche PDF de la carte
+
+Le bouton **Fiche PDF** produit un document de description de la carte : vue 3D et caractéristiques (dimensions,
+épaisseur, finition, couches, formats, logiciel d'origine, composants, nets, trous, plus petit perçage), vues de dessus
+et de dessous, puis les tableaux de l'empilage, des couches, des perçages, des composants, de la nomenclature et des
+nets, et les remarques de lecture. Il suit la langue de l'interface.
+
 ### Vue 3D
 
 Le bouton **3D** (touche **V**) montre la carte en relief :
@@ -165,6 +172,7 @@ python scripts/generer_exemples.py        # cartes d'exemple du site (public/exe
 node scripts/telecharger-exemples.mjs     # fichiers publics de test (Ucamco, ODB++), hors du dépôt
 cd core && cargo test --release -- --nocapture
 node scripts/essai-navigateur.mjs         # après npm run build : parcours complet dans Chromium
+node scripts/essai-fiche.mjs              # après npm run build : fiche PDF de plusieurs cartes
 node scripts/essai-3d.mjs                 # après npm run build : vue 3D (exemples, et exemples externes s'il y en a)
 node scripts/essai-csv.mjs                # après npm run build : export CSV de chaque tableau
 ```

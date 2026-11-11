@@ -465,7 +465,7 @@ export class Vue3D {
     // Distance pour que la sphère englobant la carte tienne dans le champ (vertical ou horizontal, le plus étroit).
     const rayon = Math.hypot(x1 - x0, y1 - y0) / 2;
     const r = this.racine.getBoundingClientRect();
-    const aspect = r.width > 2 && r.height > 2 ? r.width / r.height : 1.5;
+    const aspect = r.width > 2 && r.height > 2 ? r.width / r.height : this.canvas.width / Math.max(1, this.canvas.height);
     const demi = (35 * Math.PI) / 360;
     const champ = Math.min(demi, Math.atan(Math.tan(demi) * aspect));
     this.racine.dataset.cote = cote;
@@ -545,8 +545,8 @@ export class Vue3D {
     const gl = this.gl;
     const W = this.canvas.width, H = this.canvas.height;
     const cible = this.preparerCible(W, H);
-    // Fond sombre dans les deux thèmes, comme la vue 2D.
-    const fond = [0.04, 0.055, 0.075];
+    // Fond sombre dans les deux thèmes, comme la vue 2D (blanc pour la fiche PDF).
+    const fond = this.fondImage ?? [0.04, 0.055, 0.075];
     gl.bindFramebuffer(gl.FRAMEBUFFER, cible.fbo);
     gl.viewport(0, 0, W, H);
     gl.disable(gl.SCISSOR_TEST);
@@ -760,6 +760,24 @@ export class Vue3D {
   image(): string {
     this.dessiner();
     return this.canvas.toDataURL("image/png");
+  }
+
+  /** Fond imposé (capture hors écran pour la fiche PDF) ; null : fond de l'écran. */
+  fondImage: number[] | null = null;
+
+  /**
+   * Image PNG de la carte en trois quarts, d'un côté, à la taille demandée : pour une vue qui n'est pas affichée
+   * (fiche PDF). La scène doit être chargée (`charger`).
+   */
+  async capture(largeur: number, hauteur: number, cote: "dessus" | "dessous" = "dessus"): Promise<Uint8Array> {
+    this.canvas.width = largeur;
+    this.canvas.height = hauteur;
+    this.recadrer(cote);
+    cancelAnimationFrame(this.demande);
+    this.demande = 0;
+    this.dessiner();
+    const blob = await new Promise<Blob>((ok, ko) => this.canvas.toBlob((b) => (b ? ok(b) : ko(new Error("PNG"))), "image/png"));
+    return new Uint8Array(await blob.arrayBuffer());
   }
 
   detruire() {

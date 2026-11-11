@@ -92,6 +92,10 @@ const fr = {
   "etat.bilan.seules": { un: ", {n} couche présente dans une seule version", plus: ", {n} couches présentes dans une seule version" },
   "etat.aucuneDifference": "Aucune différence : les deux versions sont identiques (à la tolérance près).",
   "etat.preparationRapport": "Préparation du rapport PDF…",
+  "etat.preparationFiche": "Préparation de la fiche PDF de la carte…",
+  "etat.ficheEnregistree": "Fiche PDF enregistrée (dossier des téléchargements).",
+  "fiche.bouton": "Fiche PDF",
+  "fiche.titre": "Fiche PDF de la carte : vues 2D et 3D, caractéristiques, empilage, perçages, composants, nomenclature, nets",
   "etat.rapportEnregistre": "Rapport PDF enregistré (dossier des téléchargements).",
 
   // Barre du haut
@@ -437,6 +441,10 @@ const en: Record<Cle, Texte> = {
   "etat.bilan.seules": { un: ", {n} layer present in only one version", plus: ", {n} layers present in only one version" },
   "etat.aucuneDifference": "No differences: both versions are identical (within the tolerance).",
   "etat.preparationRapport": "Preparing the PDF report…",
+  "etat.preparationFiche": "Preparing the board PDF datasheet…",
+  "etat.ficheEnregistree": "PDF datasheet saved (downloads folder).",
+  "fiche.bouton": "PDF datasheet",
+  "fiche.titre": "Board PDF datasheet: 2D and 3D views, specifications, stackup, drills, components, BOM, nets",
   "etat.rapportEnregistre": "PDF report saved (downloads folder).",
 
   "barre.accueil": "Typon — home",
